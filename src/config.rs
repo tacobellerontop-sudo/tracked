@@ -1,0 +1,94 @@
+//! Persisted, non-secret settings.
+//!
+//! Nothing in here may ever hold the lockfile password, Riot tokens or any
+//! session JWT: `Settings` only contains plain preferences.
+
+use std::path::PathBuf;
+
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum Theme {
+    #[default]
+    Dark,
+    Light,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CrosshairPreset {
+    pub name: String,
+    pub code: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Settings {
+    pub window_size: [f32; 2],
+    pub theme: Theme,
+    /// Live-match polling interval while in agent select / in game.
+    pub poll_interval_secs: u64,
+    pub crosshairs: Vec<CrosshairPreset>,
+    /// Optional social backend (Phase 3). `None` = tracker-only mode.
+    pub backend_url: Option<String>,
+    pub disclaimer_accepted: bool,
+    pub check_for_updates: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            window_size: [1180.0, 760.0],
+            theme: Theme::Dark,
+            poll_interval_secs: 5,
+            crosshairs: Vec::new(),
+            backend_url: None,
+            disclaimer_accepted: false,
+            check_for_updates: true,
+        }
+    }
+}
+
+pub const MIN_POLL_SECS: u64 = 3;
+pub const MAX_POLL_SECS: u64 = 30;
+
+impl Settings {
+    pub fn poll_interval(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.poll_interval_secs.clamp(MIN_POLL_SECS, MAX_POLL_SECS))
+    }
+}
+
+fn project_dirs() -> Option<directories::ProjectDirs> {
+    directories::ProjectDirs::from("dev", "ascend-lite", "ascend-lite")
+}
+
+pub fn config_path() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("ASCEND_CONFIG_DIR") {
+        return Some(PathBuf::from(dir).join("settings.json"));
+    }
+    project_dirs().map(|d| d.config_dir().join("settings.json"))
+}
+
+pub fn cache_dir() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("ASCEND_CACHE_DIR") {
+        return Some(PathBuf::from(dir));
+    }
+    project_dirs().map(|d| d.cache_dir().to_path_buf())
+}
+
+/// Load settings, falling back to defaults on any error.
+pub fn load() -> Settings {
+    config_path()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+pub fn save(settings: &Settings) -> std::io::Result<()> {
+    let path = config_path().ok_or_else(|| std::io::Error::other("no config dir"))?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, serde_json::to_vec_pretty(settings)?)?;
+    std::fs::rename(tmp, path)
+}

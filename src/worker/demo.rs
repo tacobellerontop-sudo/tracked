@@ -1,0 +1,246 @@
+//! `--demo` mode: answers intents with synthetic data so the UI can be
+//! explored (and screenshotted) without a Riot client. Never contacts Riot;
+//! it still loads public artwork from valorant-api.com when reachable.
+
+use std::sync::Arc;
+
+use serde_json::json;
+
+use super::tasks::{self, Ctx};
+use crate::content::valorant_api::{Agent, MapInfo, Tier};
+use crate::content::Catalog;
+use crate::ipc::{CareerSummary, ClientStatus, Intent, IntentRx, RrPoint, Update};
+use crate::riot::match_stats::normalize;
+use crate::riot::models::{MatchDetail, MatchHistoryEntry, RawMatch};
+use crate::riot::pd::RankSnapshot;
+use crate::riot::presence::{GamePresence, LoopState};
+use crate::riot::RiotId;
+
+pub const SELF_PUUID: &str = "00000000-0000-4000-8000-000000000000";
+const AGENTS: &[&str] = &[
+    "Jett", "Sova", "Omen", "Killjoy", "Raze", "Skye", "Viper", "Reyna", "Cypher", "Breach",
+];
+const MAPS: &[&str] = &["Ascent", "Bind", "Haven", "Split", "Lotus", "Sunset", "Icebox", "Pearl"];
+const NAMES: &[&str] = &[
+    "you", "Nimbus", "kettle", "Orchid", "zeroday", "Paprika", "lowtide", "Quasar", "brick", "Vesper",
+];
+const TIER_NAMES: &[&str] = &[
+    "Iron",
+    "Bronze",
+    "Silver",
+    "Gold",
+    "Platinum",
+    "Diamond",
+    "Ascendant",
+    "Immortal",
+];
+
+/// Tiny deterministic PRNG so the demo looks the same every run.
+struct Lcg(u64);
+
+impl Lcg {
+    fn next(&mut self, n: u64) -> u64 {
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        (self.0 >> 33) % n
+    }
+}
+
+pub fn puuid(i: usize) -> String {
+    format!("00000000-0000-4000-8000-{i:012}")
+}
+
+fn agent_id(i: usize) -> String {
+    format!("a0000000-0000-4000-8000-{i:012}")
+}
+
+pub fn catalog() -> Catalog {
+    let mut c = Catalog::default();
+    for (i, a) in AGENTS.iter().enumerate() {
+        c.agents.insert(
+            agent_id(i),
+            Agent {
+                name: a.to_string(),
+                icon: String::new(),
+            },
+        );
+    }
+    for m in MAPS {
+        c.maps.insert(
+            format!("/Game/Maps/{m}/{m}"),
+            MapInfo {
+                name: m.to_string(),
+                icon: String::new(),
+            },
+        );
+    }
+    for (i, t) in TIER_NAMES.iter().enumerate() {
+        for d in 1..=3 {
+            c.tiers.insert(
+                3 + i as u32 * 3 + d - 1,
+                Tier {
+                    name: format!("{t} {d}"),
+                    ..Default::default()
+                },
+            );
+        }
+    }
+    c.tiers.insert(
+        27,
+        Tier {
+            name: "Radiant".into(),
+            ..Default::default()
+        },
+    );
+    c
+}
+
+/// A plausible 5v5 competitive match built from raw kills/damage, so the
+/// demo also exercises the real stat normalization.
+pub fn synthetic_match(seed: u64) -> MatchDetail {
+    let mut rng = Lcg(seed);
+    let teams = ["Red", "Blue"];
+    let players: Vec<_> = (0..10)
+        .map(|i| {
+            json!({ "subject": puuid(i), "gameName": NAMES[i], "tagLine": format!("{}", 1000 + i * 7),
+                    "teamId": teams[i / 5], "characterId": agent_id((i + seed as usize) % AGENTS.len()),
+                    "competitiveTier": 12 + rng.next(6) as u32, "accountLevel": 40 + rng.next(300) })
+        })
+        .collect();
+    let (mut red, mut blue) = (0, 0);
+    let mut rounds = Vec::new();
+    let mut score = [0u32; 10];
+    let mut kda = [(0u32, 0u32, 0u32); 10];
+    let mut n = 0;
+    while red < 13 && blue < 13 {
+        let mut alive: Vec<Vec<usize>> = vec![(0..5).collect(), (5..10).collect()];
+        let mut stats: Vec<serde_json::Value> = Vec::new();
+        let mut t = 5000;
+        while !alive[0].is_empty() && !alive[1].is_empty() {
+            // Slight edge to the red team so the demo user wins more often.
+            let killer_side = if rng.next(100) < 53 { 0 } else { 1 };
+            let killer = alive[killer_side][rng.next(alive[killer_side].len() as u64) as usize];
+            let vi = rng.next(alive[1 - killer_side].len() as u64) as usize;
+            let victim = alive[1 - killer_side].remove(vi);
+            t += 1000 + rng.next(9000);
+            let hs = rng.next(3) as u32;
+            let assist: Vec<String> = alive[killer_side]
+                .iter()
+                .filter(|&&p| p != killer && rng.next(3) == 0)
+                .map(|&p| puuid(p))
+                .collect();
+            for a in &assist {
+                let idx: usize = a[a.len() - 2..].parse().unwrap();
+                kda[idx].2 += 1;
+            }
+            kda[killer].0 += 1;
+            kda[victim].1 += 1;
+            score[killer] += 150 + 50 * hs;
+            stats.push(json!({ "subject": puuid(killer),
+                "kills": [{ "roundTime": t, "killer": puuid(killer), "victim": puuid(victim), "assistants": assist }],
+                "damage": [{ "receiver": puuid(victim), "damage": 100 + rng.next(60), "headshots": hs, "bodyshots": 2 - hs.min(2), "legshots": rng.next(2) }] }));
+        }
+        let winner = if alive[0].is_empty() { 1 } else { 0 };
+        if winner == 0 {
+            red += 1
+        } else {
+            blue += 1
+        }
+        let attacker = if n < 12 { 0 } else { 1 };
+        rounds.push(json!({ "roundNum": n, "winningTeam": teams[winner],
+            "winningTeamRole": if winner == attacker { "Attacker" } else { "Defender" },
+            "roundResult": "Eliminated", "playerStats": stats }));
+        n += 1;
+    }
+    let players: Vec<_> = players
+        .into_iter()
+        .enumerate()
+        .map(|(i, mut p)| {
+            p["stats"] = json!({ "score": score[i], "roundsPlayed": n, "kills": kda[i].0, "deaths": kda[i].1, "assists": kda[i].2 });
+            p
+        })
+        .collect();
+    let raw: RawMatch = serde_json::from_value(json!({
+        "matchInfo": { "matchId": format!("d{seed:07}-0000-4000-8000-000000000000"), "mapId": format!("/Game/Maps/{0}/{0}", MAPS[seed as usize % MAPS.len()]),
+                       "queueID": "competitive", "gameLengthMillis": 1_500_000 + seed * 37_000, "gameStartMillis": 1_761_400_000_000i64 - seed as i64 * 7_200_000,
+                       "isRanked": true, "isCompleted": true },
+        "players": players,
+        "teams": [{ "teamId": "Red", "won": red > blue, "roundsWon": red, "roundsPlayed": n },
+                  { "teamId": "Blue", "won": blue > red, "roundsWon": blue, "roundsPlayed": n }],
+        "roundResults": rounds
+    }))
+    .expect("demo match");
+    normalize(&raw)
+}
+
+pub async fn run(mut intents: IntentRx, ctx: Arc<Ctx>) {
+    ctx.set_catalog(catalog());
+    let me = RiotId {
+        game_name: "you".into(),
+        tag_line: "1000".into(),
+    };
+    ctx.sink.send(Update::ClientStatus(ClientStatus::Authed {
+        riot_id: Some(me.clone()),
+        region: "eu".into(),
+    }));
+    ctx.sink.send(Update::Game(Some(GamePresence {
+        loop_state: LoopState::Menus,
+        party_size: 2,
+        queue_id: "competitive".into(),
+        ..Default::default()
+    })));
+    let matches: Vec<MatchDetail> = (1..=10).map(synthetic_match).collect();
+    let send_career = || {
+        let mut rr = 40;
+        let rr_history = (0..12)
+            .map(|i| {
+                let earned = [18, -14, 21, 16, -12, 19, -9, 22, 17, -15, 20, 23][i];
+                rr += earned;
+                RrPoint {
+                    at_unix: 1_761_000_000 + i as i64 * 7200,
+                    tier: 15 + (rr / 100) as u32,
+                    rr: rr % 100,
+                    earned,
+                }
+            })
+            .collect::<Vec<_>>();
+        let last = rr_history.last().cloned().unwrap();
+        ctx.sink.send(Update::Career(CareerSummary {
+            puuid: puuid(0),
+            riot_id: Some(me.clone()),
+            rank: RankSnapshot {
+                tier: last.tier,
+                rr: last.rr,
+                season_wins: 23,
+                season_games: 41,
+                peak_tier: 18,
+            },
+            rr_history,
+            matches: matches
+                .iter()
+                .map(|m| MatchHistoryEntry {
+                    match_id: m.info.match_id.clone(),
+                    game_start_time: m.info.started_at_unix * 1000,
+                    queue_id: m.info.queue_id.clone(),
+                })
+                .collect(),
+        }));
+        for m in &matches {
+            ctx.sink
+                .send(Update::MatchDetails(m.info.match_id.clone(), Arc::new(m.clone())));
+        }
+    };
+    send_career();
+
+    while let Some(intent) = intents.recv().await {
+        match intent {
+            Intent::Ping(n) => ctx.sink.send(Update::Pong(n)),
+            Intent::RefreshCareer => send_career(),
+            Intent::SaveSettings(s) => tasks::save_settings(ctx.clone(), s).await,
+            Intent::Shutdown => break,
+            _ => {}
+        }
+    }
+}

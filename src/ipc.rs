@@ -1,19 +1,80 @@
-//! The contract between the UI thread and the worker.
+//! The contract between the UI thread and the worker: [`Intent`]s go down,
+//! [`Update`]s come back. This replaces the IPC command bridge a web-view
+//! app would use.
 
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc};
+
+use crate::config::Settings;
+use crate::content::Catalog;
+use crate::error::UserFacingError;
+use crate::riot::models::{MatchDetail, MatchHistoryEntry, MatchId};
+use crate::riot::pd::RankSnapshot;
+use crate::riot::presence::GamePresence;
+use crate::riot::RiotId;
 
 /// Sent UI -> worker. One variant per user action / background need.
 #[derive(Debug, Clone)]
 pub enum Intent {
     /// Plumbing check: the worker answers with [`Update::Pong`].
     Ping(u64),
+    /// Find the client and authenticate now (skips any pending backoff).
+    Bootstrap,
+    RefreshCareer,
+    LoadMatchDetails(MatchId),
+    SaveSettings(Settings),
     Shutdown,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ClientStatus {
+    /// No lockfile: the Riot client isn't running.
+    NotRunning,
+    /// Lockfile found but not authenticated yet (client still starting, etc.).
+    Connecting(String),
+    Authed {
+        riot_id: Option<RiotId>,
+        region: String,
+    },
+}
+
+/// One point on the RR-over-time sparkline.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RrPoint {
+    pub at_unix: i64,
+    pub tier: u32,
+    pub rr: i32,
+    pub earned: i32,
+}
+
+impl RrPoint {
+    /// A monotone "ladder" value so tier changes show up on one axis.
+    pub fn ladder(&self) -> i32 {
+        self.tier as i32 * 100 + self.rr
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CareerSummary {
+    pub puuid: String,
+    pub riot_id: Option<RiotId>,
+    pub rank: RankSnapshot,
+    /// Oldest first.
+    pub rr_history: Vec<RrPoint>,
+    pub matches: Vec<MatchHistoryEntry>,
 }
 
 /// Sent worker -> UI. One variant per thing the UI can display.
 #[derive(Debug, Clone)]
 pub enum Update {
     Pong(u64),
+    ClientStatus(ClientStatus),
+    Content(Arc<Catalog>),
+    /// Our own presence (menus / agent select / in game), `None` if unknown.
+    Game(Option<GamePresence>),
+    CareerLoading(bool),
+    Career(CareerSummary),
+    MatchDetails(MatchId, Arc<MatchDetail>),
+    Error(UserFacingError),
 }
 
 /// UI-side handle for sending intents. Never blocks.

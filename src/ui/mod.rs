@@ -1,19 +1,140 @@
-//! Top-level layout.
+//! Top-level layout: status bar, left nav rail, content panel, toasts.
 
-use crate::app::AppState;
-use crate::ipc::{Intent, IntentTx};
+pub mod career;
+pub mod live;
+pub mod match_detail;
+pub mod settings;
+pub mod widgets;
+
+use egui::Color32;
+
+use crate::app::{AppState, Screen, Toast};
+use crate::ipc::{ClientStatus, Intent, IntentTx};
+
+pub const DISCLAIMER: &str = "Ascend-Lite is an unofficial third-party tool. It is not affiliated with, \
+endorsed, sponsored or approved by Riot Games. VALORANT and Riot Games are trademarks of Riot Games, Inc. \
+You use this app at your own risk and remain subject to Riot's Terms of Service.\n\n\
+Ascend-Lite only uses the Riot Client's local API and Riot's web endpoints with tokens the client issued. \
+It never reads game memory, never injects into or modifies any Riot process, and never automates gameplay.";
+
+const NAV: &[(Screen, &str, egui::Key)] = &[
+    (Screen::Live, "Live", egui::Key::Num1),
+    (Screen::Career, "Career", egui::Key::Num2),
+    (Screen::Settings, "Settings", egui::Key::Num6),
+];
 
 pub fn draw(ctx: &egui::Context, state: &mut AppState, intents: &IntentTx) {
-    egui::CentralPanel::default().show(ctx, |ui| {
-        ui.heading("Ascend-Lite — plumbing check");
-        if ui.button("Ping worker").clicked() {
-            state.pings_sent += 1;
-            intents.send(Intent::Ping(state.pings_sent));
+    if !state.settings.disclaimer_accepted {
+        egui::CentralPanel::default().show(ctx, |ui| disclaimer(ui, state, intents));
+        return;
+    }
+
+    // Ctrl+<n> switches screens.
+    for (screen, _, key) in NAV {
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, *key)) {
+            state.screen = *screen;
         }
-        ui.label(format!("pings sent: {}", state.pings_sent));
-        match state.last_pong {
-            Some(n) => ui.label(format!("last pong: {n}")),
-            None => ui.label("no pong yet"),
+    }
+
+    egui::TopBottomPanel::top("status").show(ctx, |ui| status_bar(ui, state, intents));
+    egui::SidePanel::left("nav")
+        .resizable(false)
+        .exact_width(120.0)
+        .show(ctx, |ui| {
+            ui.add_space(8.0);
+            for (screen, label, _) in NAV {
+                let selected =
+                    state.screen == *screen || (*screen == Screen::Career && state.screen == Screen::MatchDetail);
+                let resp = ui.add_sized(
+                    [ui.available_width(), 32.0],
+                    egui::SelectableLabel::new(selected, *label),
+                );
+                if resp.clicked() {
+                    state.screen = *screen;
+                }
+            }
+        });
+    toasts(ctx, state);
+    egui::CentralPanel::default().show(ctx, |ui| {
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| match state.screen {
+                Screen::Live => live::ui(ui, state, intents),
+                Screen::Career => career::ui(ui, state, intents),
+                Screen::MatchDetail => match_detail::ui(ui, state, intents),
+                Screen::Settings => settings::ui(ui, state, intents),
+            });
+    });
+}
+
+fn status_bar(ui: &mut egui::Ui, state: &AppState, intents: &IntentTx) {
+    ui.horizontal(|ui| {
+        let (color, text) = match &state.status {
+            ClientStatus::NotRunning => (Color32::from_rgb(200, 70, 70), "VALORANT isn't running".to_string()),
+            ClientStatus::Connecting(m) => (Color32::from_rgb(220, 170, 60), m.clone()),
+            ClientStatus::Authed { riot_id, region } => (
+                Color32::from_rgb(80, 190, 110),
+                match riot_id {
+                    Some(id) => format!("{id} · {}", region.to_uppercase()),
+                    None => format!("Connected · {}", region.to_uppercase()),
+                },
+            ),
         };
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
+        ui.painter().circle_filled(rect.center(), 4.5, color);
+        ui.label(text);
+        if let Some(g) = &state.game {
+            ui.separator();
+            ui.label(live::loop_state_label(g.loop_state));
+        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if !matches!(state.status, ClientStatus::Authed { .. }) && ui.small_button("Retry now").clicked() {
+                intents.send(Intent::Bootstrap);
+            }
+        });
+    });
+}
+
+fn toasts(ctx: &egui::Context, state: &mut AppState) {
+    let now = ctx.input(|i| i.time);
+    for text in state.pending_toasts.drain(..) {
+        if !state.toasts.iter().any(|t| t.text == text) {
+            state.toasts.push(Toast { text, until: now + 6.0 });
+        }
+    }
+    state.toasts.retain(|t| t.until > now);
+    if state.toasts.is_empty() {
+        return;
+    }
+    egui::TopBottomPanel::bottom("toasts").show(ctx, |ui| {
+        for t in &state.toasts {
+            ui.colored_label(Color32::from_rgb(230, 120, 100), &t.text);
+        }
+    });
+    ctx.request_repaint_after(std::time::Duration::from_millis(500));
+}
+
+fn disclaimer(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
+    let margin = ((ui.available_width() - 560.0) / 2.0).max(16.0);
+    ui.horizontal(|ui| {
+        ui.add_space(margin);
+        ui.vertical(|ui| {
+            ui.set_max_width(560.0);
+            disclaimer_body(ui, state, intents);
+        });
+    });
+}
+
+fn disclaimer_body(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
+    ui.vertical(|ui| {
+        ui.add_space(60.0);
+        ui.heading("Before you start");
+        ui.add_space(12.0);
+        ui.label(DISCLAIMER);
+        ui.add_space(16.0);
+        if ui.button("I understand — continue").clicked() {
+            state.settings.disclaimer_accepted = true;
+            state.save_settings(intents);
+        }
     });
 }
