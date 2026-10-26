@@ -44,6 +44,15 @@ What the app does and does not do:
 
 The same disclaimer is shown on first launch and on the Settings screen.
 
+## Download (Windows)
+
+Every push builds `ascend-lite.exe` with GitHub Actions (**Actions → Windows build →**
+pick a run → **Artifacts → ascend-lite-windows-x64**). Pushing a version tag
+(`git tag v0.1.0 && git push origin v0.1.0`) also publishes it as a GitHub Release.
+The download also includes `mock-backend.exe`, which you only need to try the social
+features offline. The exe isn't code-signed, so Windows SmartScreen may warn the first
+time you run it.
+
 ## Build & run
 
 Requires a stable Rust toolchain (2021 edition).

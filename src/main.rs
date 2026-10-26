@@ -1,3 +1,6 @@
+// Release builds are a GUI app: no console window on Windows (logs go to the log file).
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use ascend_lite::{app::App, config, ipc, logging, worker};
 
 fn main() -> eframe::Result<()> {
