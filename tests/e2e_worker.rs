@@ -44,6 +44,8 @@ fn worker_end_to_end() {
     let tmp = std::env::temp_dir().join(format!("ascend-e2e-{}", std::process::id()));
     std::env::set_var("ASCEND_LOCKFILE", common::write_lockfile(port, common::PASSWORD));
     std::env::set_var("ASCEND_CLIENT_VERSION", common::CLIENT_VERSION);
+    // Keep tests off the internet (valorant-api.com would change the current act).
+    std::env::set_var("ASCEND_OFFLINE_CONTENT", "1");
     std::env::set_var("ASCEND_FAKE_RIOT_BASE", format!("https://127.0.0.1:{port}"));
     std::env::set_var("ASCEND_CACHE_DIR", tmp.join("cache"));
     std::env::set_var("ASCEND_CONFIG_DIR", tmp.join("cfg"));

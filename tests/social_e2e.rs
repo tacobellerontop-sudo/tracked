@@ -33,6 +33,8 @@ fn social_against_mock_backend() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let url = start_mock(&rt);
     std::env::set_var("ASCEND_LOCKFILE", "/nonexistent/ascend/lockfile");
+    // Keep tests off the internet (valorant-api.com would change the current act).
+    std::env::set_var("ASCEND_OFFLINE_CONTENT", "1");
     std::env::set_var(
         "ASCEND_CONFIG_DIR",
         std::env::temp_dir().join(format!("ascend-social-{}", std::process::id())),

@@ -79,6 +79,7 @@ Settings never contain credentials. Override with `ASCEND_CONFIG_DIR` / `ASCEND_
 | `ASCEND_LOCKFILE` | Use a different lockfile path |
 | `ASCEND_CLIENT_VERSION` | Override the Riot client version header |
 | `RIOT_API_KEY` | Optional: search any Riot ID via Riot's official account API |
+| `ASCEND_OFFLINE_CONTENT` | Skip valorant-api.com (no artwork; used by tests) |
 
 ## Social features (optional backend)
 
