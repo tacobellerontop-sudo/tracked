@@ -34,6 +34,8 @@ pub struct CrosshairPreset {
 #[serde(default)]
 pub struct Settings {
     pub window_size: [f32; 2],
+    /// Restore the window maximized (window_size is then the size to un-maximize to).
+    pub window_maximized: bool,
     /// Stored as "appearance" (the old "theme" key, from before the redesign,
     /// is ignored so everyone starts on the new light look).
     #[serde(rename = "appearance")]
@@ -65,6 +67,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             window_size: [1440.0, 900.0],
+            window_maximized: false,
             theme: Theme::Light,
             poll_interval_secs: 5,
             crosshairs: Vec::new(),

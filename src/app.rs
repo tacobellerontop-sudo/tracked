@@ -494,6 +494,8 @@ pub struct App {
     updates: UpdateRx,
     worker: Option<std::thread::JoinHandle<()>>,
     applied_theme: Option<Theme>,
+    /// When the window size/maximized state last changed and isn't saved yet.
+    window_dirty_since: Option<f64>,
 }
 
 impl App {
@@ -513,6 +515,45 @@ impl App {
             updates,
             worker: Some(worker),
             applied_theme: None,
+            window_dirty_since: None,
+        }
+    }
+}
+
+impl App {
+    /// Remember the window's normal size and maximized state, and save them
+    /// a second after they stop changing (so a crash doesn't lose them).
+    fn track_window(&mut self, ctx: &egui::Context) {
+        let (rect, maximized, minimized, now) = ctx.input(|i| {
+            let v = i.viewport();
+            (v.inner_rect, v.maximized, v.minimized, i.time)
+        });
+        let s = &mut self.state.settings;
+        let mut changed = false;
+        if minimized != Some(true) {
+            if let Some(m) = maximized {
+                changed |= s.window_maximized != m;
+                s.window_maximized = m;
+            }
+            // While maximized the rect is the screen, not the size to restore to.
+            if let (Some(r), false) = (rect, s.window_maximized) {
+                let size = [r.width().round(), r.height().round()];
+                if size[0] >= 400.0 && size[1] >= 300.0 && size != s.window_size {
+                    s.window_size = size;
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            self.window_dirty_since = Some(now);
+        }
+        if let Some(since) = self.window_dirty_since {
+            if now - since > 1.0 {
+                self.window_dirty_since = None;
+                self.state.save_settings(&self.intents);
+            } else {
+                ctx.request_repaint_after(std::time::Duration::from_millis(1100));
+            }
         }
     }
 }
@@ -527,9 +568,7 @@ impl eframe::App for App {
             self.applied_theme = Some(self.state.settings.theme);
         }
         crate::ui::theme::set_animations(ctx, self.state.settings.animations);
-        if let Some(rect) = ctx.input(|i| i.viewport().inner_rect) {
-            self.state.settings.window_size = [rect.width(), rect.height()];
-        }
+        self.track_window(ctx);
         crate::ui::draw(ctx, &mut self.state, &self.intents);
     }
 

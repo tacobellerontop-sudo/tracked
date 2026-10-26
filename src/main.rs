@@ -4,12 +4,18 @@
 use tracked::config::{self, RendererPref, Settings};
 use tracked::{app::App, ipc, logging, worker};
 
+const MIN_SIZE: [f32; 2] = [1000.0, 660.0];
+
 fn options(settings: &Settings, renderer: eframe::Renderer) -> eframe::NativeOptions {
     eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Tracked")
-            .with_inner_size(settings.window_size)
-            .with_min_inner_size([1000.0, 660.0])
+            .with_inner_size([
+                settings.window_size[0].max(MIN_SIZE[0]),
+                settings.window_size[1].max(MIN_SIZE[1]),
+            ])
+            .with_maximized(settings.window_maximized)
+            .with_min_inner_size(MIN_SIZE)
             // The app draws its own slim title bar unless the user opted out.
             .with_decorations(settings.system_title_bar),
         renderer,
