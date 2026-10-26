@@ -8,8 +8,9 @@ use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use ascend_lite::riot::{lockfile, presence, Session};
+use ascend_lite::riot::{self, lockfile};
 use base64::Engine;
+use futures_util::StreamExt;
 
 #[derive(Clone, Default)]
 struct Buf(Arc<Mutex<Vec<u8>>>);
@@ -36,30 +37,30 @@ async fn sample_run_never_logs_secrets() {
 
     let port = common::start().await;
     std::env::set_var("ASCEND_LOCKFILE", common::write_lockfile(port, common::PASSWORD));
+    std::env::set_var("ASCEND_CLIENT_VERSION", common::CLIENT_VERSION);
+    std::env::set_var("ASCEND_FAKE_RIOT_BASE", format!("https://127.0.0.1:{port}"));
 
     let lock = lockfile::read().await.unwrap();
     tracing::debug!(target: "ascend_lite", ?lock, "lockfile loaded");
-    let session = Session::connect(&lock, reqwest::Client::new(), common::CLIENT_VERSION.into())
-        .await
-        .unwrap();
+    let session = std::sync::Arc::new(riot::connect().await.unwrap());
     tracing::debug!(target: "ascend_lite", ?session, "session established");
+    tracing::debug!(target: "ascend_lite", public = ?session.public().await, auth = ?session.local_auth(), "auth");
     let _ = session.local.presences().await;
+    let _ = ascend_lite::riot::pd::player_mmr(&session, &session.puuid).await;
 
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    tokio::spawn(presence::run_socket(
-        port,
-        lock.password.clone(),
-        common::PUUID.into(),
-        tx,
-    ));
-    let _ = tokio::time::timeout(Duration::from_secs(3), rx.recv()).await;
-    let _ = tokio::time::timeout(Duration::from_secs(3), rx.recv()).await;
+    // The websocket (its handshake carries the basic-auth header).
+    let mut events = Box::pin(riot::watch(session.clone()));
+    for _ in 0..3 {
+        let _ = tokio::time::timeout(Duration::from_secs(3), events.next()).await;
+    }
+    drop(events);
 
     // Also exercise the error path with a bad password.
-    let bad = lockfile::parse(&format!("Riot Client:1:{port}:{}X:https", common::PASSWORD)).unwrap();
-    let err = Session::connect(&bad, reqwest::Client::new(), "v".into())
-        .await
-        .unwrap_err();
+    std::env::set_var(
+        "ASCEND_LOCKFILE",
+        common::write_lockfile(port, &format!("{}X", common::PASSWORD)),
+    );
+    let err = riot::connect().await.unwrap_err();
     tracing::warn!(target: "ascend_lite", "expected failure: {err} / {err:?}");
 
     let logs = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();

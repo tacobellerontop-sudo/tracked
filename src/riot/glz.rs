@@ -4,7 +4,7 @@
 use serde::Deserialize;
 
 use super::models::{LiveMatch, LivePhase, LivePlayer};
-use super::Session;
+use super::RiotSession;
 use crate::error::ApiError;
 
 #[derive(Debug, Default, Clone, Deserialize)]
@@ -121,7 +121,21 @@ fn level(id: &PlayerIdentity) -> Option<u32> {
     (!id.hide_account_level).then_some(id.account_level)
 }
 
-pub async fn pregame(s: &Session) -> Result<Option<LiveMatch>, ApiError> {
+/// `GET /pregame/v1/players/{puuid}` → the agent-select match id, if any.
+pub async fn pregame_match_id(s: &RiotSession) -> Option<String> {
+    let base = s.glz().ok()?;
+    let r: MatchRef = s.get(&format!("{base}/pregame/v1/players/{}", s.puuid)).await.ok()?;
+    super::pd::is_uuid(&r.match_id).then_some(r.match_id)
+}
+
+/// `GET /core-game/v1/players/{puuid}` → the in-progress match id, if any.
+pub async fn coregame_match_id(s: &RiotSession) -> Option<String> {
+    let base = s.glz().ok()?;
+    let r: MatchRef = s.get(&format!("{base}/core-game/v1/players/{}", s.puuid)).await.ok()?;
+    super::pd::is_uuid(&r.match_id).then_some(r.match_id)
+}
+
+pub async fn pregame(s: &RiotSession) -> Result<Option<LiveMatch>, ApiError> {
     let base = s.glz()?;
     let Some(r) = optional(s.get::<MatchRef>(&format!("{base}/pregame/v1/players/{}", s.puuid))).await? else {
         return Ok(None);
@@ -157,7 +171,7 @@ pub fn pregame_to_live(m: &RawPregame, me: &str) -> LiveMatch {
     }
 }
 
-pub async fn coregame(s: &Session) -> Result<Option<LiveMatch>, ApiError> {
+pub async fn coregame(s: &RiotSession) -> Result<Option<LiveMatch>, ApiError> {
     let base = s.glz()?;
     let Some(r) = optional(s.get::<MatchRef>(&format!("{base}/core-game/v1/players/{}", s.puuid))).await? else {
         return Ok(None);
@@ -196,7 +210,7 @@ pub fn coregame_to_live(m: &RawCoregame, me: &str) -> LiveMatch {
     }
 }
 
-pub async fn party(s: &Session) -> Result<Option<LiveMatch>, ApiError> {
+pub async fn party(s: &RiotSession) -> Result<Option<LiveMatch>, ApiError> {
     let base = s.glz()?;
     let Some(r) = optional(s.get::<PartyRef>(&format!("{base}/parties/v1/players/{}", s.puuid))).await? else {
         return Ok(None);
@@ -240,7 +254,7 @@ pub fn party_to_live(p: &RawParty, me: &str) -> LiveMatch {
 
 /// The most specific live state we can find, preferring the one presence
 /// says we're in.
-pub async fn current(s: &Session, hint: super::presence::LoopState) -> Result<Option<LiveMatch>, ApiError> {
+pub async fn current(s: &RiotSession, hint: super::presence::LoopState) -> Result<Option<LiveMatch>, ApiError> {
     use super::presence::LoopState::*;
     if hint == InGame {
         if let Some(m) = coregame(s).await? {

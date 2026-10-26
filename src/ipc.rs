@@ -74,6 +74,10 @@ pub enum Intent {
 pub enum ClientStatus {
     /// No lockfile: the Riot client isn't running.
     NotRunning,
+    /// The client is running but nobody is signed in yet.
+    SignedOut,
+    /// The client went away while connected (transient; next is NotRunning).
+    Lost,
     /// Lockfile found but not authenticated yet (client still starting, etc.).
     Connecting(String),
     Authed {

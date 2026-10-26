@@ -213,10 +213,7 @@ pub async fn sign_in(ctx: Arc<Ctx>, display_name: String) {
         return;
     };
     ctx.sink.send(Update::Backend(BackendStatus::SigningIn));
-    let riot_id = ctx
-        .session()
-        .ok()
-        .and_then(|s| s.riot_id.as_ref().map(|r| r.to_string()));
+    let riot_id = ctx.session().ok().map(|s| s.riot_id().to_string());
     match client.dev_login(display_name.trim(), riot_id.as_deref()).await {
         Ok(user) => {
             tracing::info!(user = %user.id, "signed in to backend");

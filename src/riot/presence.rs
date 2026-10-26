@@ -1,17 +1,9 @@
-//! Presence: decoding the private blob and the local websocket feed.
-
-use std::time::Duration;
+//! Presence payloads: decoding the base64 `private` blob of a VALORANT
+//! presence. The websocket that delivers them lives in [`super::state`].
 
 use base64::Engine;
-use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::Value;
-use tokio::sync::mpsc;
-use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-use tokio_tungstenite::tungstenite::Message;
-
-use super::tls;
-use crate::secret::Secret;
 
 /// One entry of the local chat presence list.
 #[derive(Debug, Default, Clone, Deserialize)]
@@ -98,77 +90,3 @@ pub fn presences_from_event(text: &str) -> Option<Vec<RawPresence>> {
 }
 
 pub const SUBSCRIBE_PRESENCES: &str = r#"[5,"OnJsonApiEvent_chat_v4_presences"]"#;
-
-/// Events emitted by the websocket task.
-#[derive(Debug, Clone)]
-pub enum PresenceEvent {
-    Connected,
-    Changed(GamePresence),
-    /// The socket closed; carries the reason.
-    Disconnected(String),
-}
-
-/// Connect to the local websocket and forward our presence changes until
-/// the socket drops. The caller reconnects with backoff.
-pub async fn run_socket(port: u16, password: Secret<String>, puuid: String, tx: mpsc::UnboundedSender<PresenceEvent>) {
-    let reason = match socket_once(port, &password, &puuid, &tx).await {
-        Ok(()) => "closed by the client".to_string(),
-        Err(e) => e,
-    };
-    tracing::debug!("presence socket ended: {reason}");
-    let _ = tx.send(PresenceEvent::Disconnected(reason));
-}
-
-async fn socket_once(
-    port: u16,
-    password: &Secret<String>,
-    puuid: &str,
-    tx: &mpsc::UnboundedSender<PresenceEvent>,
-) -> Result<(), String> {
-    // Credentials travel in the Authorization header, never in the URL.
-    let mut req = format!("wss://127.0.0.1:{port}")
-        .into_client_request()
-        .map_err(|e| e.to_string())?;
-    let basic = base64::engine::general_purpose::STANDARD.encode(format!("riot:{}", password.expose()));
-    let mut value = format!("Basic {basic}")
-        .parse::<tokio_tungstenite::tungstenite::http::HeaderValue>()
-        .map_err(|e| e.to_string())?;
-    value.set_sensitive(true);
-    req.headers_mut().insert("Authorization", value);
-
-    let connector = tokio_tungstenite::Connector::Rustls(tls::local_client_config());
-    let (mut ws, _) = tokio::time::timeout(
-        Duration::from_secs(5),
-        tokio_tungstenite::connect_async_tls_with_config(req, None, false, Some(connector)),
-    )
-    .await
-    .map_err(|_| "connect timeout".to_string())?
-    .map_err(|e| e.to_string())?;
-
-    ws.send(Message::Text(SUBSCRIBE_PRESENCES.into()))
-        .await
-        .map_err(|e| e.to_string())?;
-    let _ = tx.send(PresenceEvent::Connected);
-    tracing::info!("presence websocket connected");
-
-    let mut last: Option<GamePresence> = None;
-    while let Some(msg) = ws.next().await {
-        let msg = msg.map_err(|e| e.to_string())?;
-        let Message::Text(text) = msg else { continue };
-        if text.is_empty() {
-            continue;
-        }
-        let Some(list) = presences_from_event(&text) else {
-            continue;
-        };
-        if let Some(gp) = own_presence(&list, puuid) {
-            if last.as_ref() != Some(&gp) {
-                last = Some(gp.clone());
-                if tx.send(PresenceEvent::Changed(gp)).is_err() {
-                    break;
-                }
-            }
-        }
-    }
-    Ok(())
-}

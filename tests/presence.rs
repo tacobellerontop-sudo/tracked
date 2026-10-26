@@ -53,3 +53,32 @@ fn parses_event_frames() {
     assert!(presences_from_event("").is_none());
     assert!(presences_from_event(r#"[5,"OnJsonApiEvent"]"#).is_none());
 }
+
+#[test]
+fn canned_frames_map_to_game_states() {
+    use ascend_lite::riot::presence::own_presence;
+    let frame = |state: &str| {
+        let blob = b64(
+            serde_json::json!({ "matchPresenceData": { "sessionLoopState": state }, "partyPresenceData": { "partySize": 1 } }),
+        );
+        format!(
+            r#"[8,"OnJsonApiEvent_chat_v4_presences",{{"data":{{"presences":[{{"puuid":"me","product":"valorant","private":"{blob}"}}]}}}}]"#
+        )
+    };
+    for (raw, want) in [
+        ("MENUS", LoopState::Menus),
+        ("PREGAME", LoopState::Pregame),
+        ("INGAME", LoopState::InGame),
+    ] {
+        let list = presences_from_event(&frame(raw)).unwrap();
+        assert_eq!(own_presence(&list, "me").unwrap().loop_state, want);
+        assert!(own_presence(&list, "someone-else").is_none());
+    }
+    // GameState carries the loop state through.
+    use ascend_lite::riot::GameState;
+    assert_eq!(
+        GameState::PreGame { match_id: "m".into() }.loop_state(),
+        LoopState::Pregame
+    );
+    assert_eq!(GameState::Offline.loop_state(), LoopState::Unknown);
+}

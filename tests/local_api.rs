@@ -1,57 +1,38 @@
+//! The local half of the connection layer against a fake Riot Client
+//! (self-signed TLS on 127.0.0.1, basic auth). No Riot servers involved.
+
 mod common;
 
-use std::time::Duration;
-
 use ascend_lite::error::ApiError;
-use ascend_lite::riot::lockfile;
-use ascend_lite::riot::presence::{self, LoopState, PresenceEvent};
-use ascend_lite::riot::Session;
+use ascend_lite::riot::presence::{self, LoopState};
+use ascend_lite::riot::{self, lockfile, Region, Shard};
 
 #[tokio::test]
-async fn bootstrap_against_fake_local_api() {
+async fn connect_against_fake_local_api() {
     let port = common::start().await;
-    let path = common::write_lockfile(port, common::PASSWORD);
-    std::env::set_var("ASCEND_LOCKFILE", &path);
+    std::env::set_var("ASCEND_LOCKFILE", common::write_lockfile(port, common::PASSWORD));
+    std::env::set_var("ASCEND_CLIENT_VERSION", common::CLIENT_VERSION);
 
     let lock = lockfile::read().await.expect("lockfile");
     assert_eq!(lock.port, port);
 
-    let session = Session::connect(&lock, reqwest::Client::new(), common::CLIENT_VERSION.into())
-        .await
-        .expect("connect");
-    assert_eq!(session.puuid, common::PUUID);
-    assert_eq!(session.region.region, "eu");
-    assert_eq!(session.region.shard, "eu");
-    assert_eq!(session.riot_id.as_ref().unwrap().to_string(), "Tester#0001");
+    // M1/M2 (local part): identity, tokens, region, hosts, headers.
+    let s = riot::connect().await.expect("connect");
+    assert_eq!(s.puuid, common::PUUID);
+    assert_eq!(s.riot_id().to_string(), "Tester#0001");
+    assert_eq!((s.region, s.shard), (Region::Eu, Shard::Eu));
+    assert_eq!(s.hosts.pd, "https://pd.eu.a.pvp.net");
+    assert_eq!(s.hosts.glz, "https://glz-eu-1.eu.a.pvp.net");
+    let public = s.public().await;
+    assert_eq!(public.access_token.expose(), &common::access_token());
+    assert_eq!(public.client_version, common::CLIENT_VERSION);
+    assert_eq!(s.local_auth().base, format!("https://127.0.0.1:{port}"));
 
-    let p = session.local.presences().await.unwrap();
+    let p = s.local.presences().await.unwrap();
     let own = presence::own_presence(&p.presences, common::PUUID).unwrap();
     assert_eq!(own.loop_state, LoopState::Menus);
     assert_eq!(own.party_size, 2);
-
-    let friends = session.local.friends().await.unwrap();
-    assert_eq!(friends.friends[0].game_name, "Buddy");
-
-    // Presence websocket: we should see PREGAME then INGAME (duplicates collapsed).
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    tokio::spawn(presence::run_socket(
-        port,
-        lock.password.clone(),
-        common::PUUID.into(),
-        tx,
-    ));
-    let mut states = Vec::new();
-    while states.len() < 2 {
-        match tokio::time::timeout(Duration::from_secs(5), rx.recv())
-            .await
-            .expect("socket timeout")
-        {
-            Some(PresenceEvent::Changed(g)) => states.push(g.loop_state),
-            Some(_) => {}
-            None => break,
-        }
-    }
-    assert_eq!(states, vec![LoopState::Pregame, LoopState::InGame]);
+    assert_eq!(s.local.friends().await.unwrap().friends[0].game_name, "Buddy");
 }
 
 #[tokio::test]

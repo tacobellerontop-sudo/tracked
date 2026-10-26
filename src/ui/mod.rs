@@ -132,11 +132,19 @@ fn status_bar(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
     ui.horizontal(|ui| {
         let (color, text) = match &state.status {
             ClientStatus::NotRunning => (Color32::from_rgb(200, 70, 70), "VALORANT isn't running".to_string()),
+            ClientStatus::SignedOut => (
+                Color32::from_rgb(220, 170, 60),
+                "Waiting for you to sign in…".to_string(),
+            ),
+            ClientStatus::Lost => (
+                Color32::from_rgb(200, 70, 70),
+                "Lost the Riot Client, reconnecting…".to_string(),
+            ),
             ClientStatus::Connecting(m) => (Color32::from_rgb(220, 170, 60), m.clone()),
             ClientStatus::Authed { riot_id, region } => (
                 Color32::from_rgb(80, 190, 110),
                 match riot_id {
-                    Some(id) => format!("{id} · {}", region.to_uppercase()),
+                    Some(id) => format!("Connected as {id} · {}", region.to_uppercase()),
                     None => format!("Connected · {}", region.to_uppercase()),
                 },
             ),

@@ -80,13 +80,17 @@ pub fn default_path() -> Option<PathBuf> {
 }
 
 /// Read the lockfile. A missing file means the client isn't running.
-pub async fn read() -> Result<Lockfile, crate::error::ApiError> {
-    let path = default_path().ok_or(crate::error::ApiError::NotRunning)?;
+pub async fn read() -> Result<Lockfile, super::error::RiotError> {
+    use super::error::RiotError;
+    let path = default_path().ok_or(RiotError::ClientNotRunning)?;
     // The Riot client keeps the file open; tokio's read uses shared access on
     // Windows so this works while the client is running.
     match tokio::fs::read_to_string(&path).await {
         Ok(s) => Ok(parse(&s)?),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(crate::error::ApiError::NotRunning),
-        Err(e) => Err(crate::error::ApiError::Other(format!("couldn't read lockfile: {e}"))),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(RiotError::ClientNotRunning),
+        Err(e) => {
+            tracing::warn!("couldn't read lockfile: {e}");
+            Err(RiotError::LockfileMalformed)
+        }
     }
 }

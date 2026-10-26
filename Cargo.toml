@@ -18,6 +18,10 @@ path = "src/lib.rs"
 name = "ascend-lite"
 path = "src/main.rs"
 
+[[bin]]
+name = "riot-probe"
+path = "src/bin/riot-probe.rs"
+
 [features]
 default = []
 # Dev/test only: lets ASCEND_FAKE_RIOT_BASE=https://127.0.0.1:<port> stand in
@@ -27,6 +31,16 @@ fake-riot = []
 
 [[test]]
 name = "e2e_worker"
+required-features = ["fake-riot"]
+
+[[test]]
+name = "riot_layer"
+required-features = ["fake-riot"]
+
+# Runs the presence watcher, which looks up match ids on GLZ; with the fake
+# backend those calls stay on loopback instead of reaching Riot.
+[[test]]
+name = "no_secrets_in_logs"
 required-features = ["fake-riot"]
 
 [dependencies]
@@ -53,8 +67,20 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 semver = "1"
 webpki-roots = "0.26"
 
+# Windows only: system TLS (schannel) fallback for the Riot Client's local
+# server, used if rustls can't complete the handshake with it.
+[target.'cfg(windows)'.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["native-tls"] }
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["native-tls"] }
+native-tls = "0.2"
+
 [dev-dependencies]
 mock-backend = { path = "mock-backend" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "test-util"] }
 rcgen = "0.13"
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+
+# Line tables keep backtraces useful at a fraction of the size of full
+# debug info (dozens of test binaries otherwise add up to tens of GB).
+[profile.dev]
+debug = "line-tables-only"

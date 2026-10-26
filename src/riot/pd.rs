@@ -3,14 +3,14 @@
 
 use super::match_stats;
 use super::models::*;
-use super::Session;
+use super::RiotSession;
 use crate::error::ApiError;
 
-pub async fn player_mmr(s: &Session, puuid: &str) -> Result<PlayerMmr, ApiError> {
+pub async fn player_mmr(s: &RiotSession, puuid: &str) -> Result<PlayerMmr, ApiError> {
     s.get(&format!("{}/mmr/v1/players/{puuid}", s.pd()?)).await
 }
 
-pub async fn competitive_updates(s: &Session, puuid: &str, count: u32) -> Result<CompetitiveUpdates, ApiError> {
+pub async fn competitive_updates(s: &RiotSession, puuid: &str, count: u32) -> Result<CompetitiveUpdates, ApiError> {
     let url = format!(
         "{}/mmr/v1/players/{puuid}/competitiveupdates?startIndex=0&endIndex={count}&queue=competitive",
         s.pd()?
@@ -18,7 +18,7 @@ pub async fn competitive_updates(s: &Session, puuid: &str, count: u32) -> Result
     s.get(&url).await
 }
 
-pub async fn match_history(s: &Session, puuid: &str, start: u32, end: u32) -> Result<MatchHistory, ApiError> {
+pub async fn match_history(s: &RiotSession, puuid: &str, start: u32, end: u32) -> Result<MatchHistory, ApiError> {
     let url = format!(
         "{}/match-history/v1/history/{puuid}?startIndex={start}&endIndex={end}",
         s.pd()?
@@ -26,7 +26,7 @@ pub async fn match_history(s: &Session, puuid: &str, start: u32, end: u32) -> Re
     s.get(&url).await
 }
 
-pub async fn match_details(s: &Session, match_id: &str) -> Result<MatchDetail, ApiError> {
+pub async fn match_details(s: &RiotSession, match_id: &str) -> Result<MatchDetail, ApiError> {
     if !is_uuid(match_id) {
         return Err(ApiError::Other("invalid match id".into()));
     }
@@ -114,7 +114,7 @@ impl PlayerProbe {
 }
 
 /// Rank-probe one player (two PD calls).
-pub async fn probe(s: &Session, puuid: &str, current_act: Option<&str>) -> Result<PlayerProbe, ApiError> {
+pub async fn probe(s: &RiotSession, puuid: &str, current_act: Option<&str>) -> Result<PlayerProbe, ApiError> {
     if !is_uuid(puuid) {
         return Err(ApiError::Other("invalid player id".into()));
     }

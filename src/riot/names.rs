@@ -5,7 +5,7 @@ use std::sync::Mutex;
 
 use serde::Deserialize;
 
-use super::{RiotId, Session};
+use super::{RiotId, RiotSession};
 use crate::error::ApiError;
 
 /// Riot rejects very large batches; stay well under the limit.
@@ -47,7 +47,7 @@ impl NameCache {
     }
 
     /// Resolve PUUIDs, fetching only the ones not already cached.
-    pub async fn resolve(&self, s: &Session, puuids: &[String]) -> Result<HashMap<String, RiotId>, ApiError> {
+    pub async fn resolve(&self, s: &RiotSession, puuids: &[String]) -> Result<HashMap<String, RiotId>, ApiError> {
         let missing: Vec<String> = {
             let cache = self.by_puuid.lock().unwrap();
             let mut m: Vec<String> = puuids.iter().filter(|p| !cache.contains_key(*p)).cloned().collect();
@@ -75,7 +75,7 @@ impl NameCache {
 }
 
 /// One request; if Riot says the batch is too big, split it in half.
-async fn fetch(s: &Session, puuids: &[String]) -> Result<Vec<NameEntry>, ApiError> {
+async fn fetch(s: &RiotSession, puuids: &[String]) -> Result<Vec<NameEntry>, ApiError> {
     let url = format!("{}/name-service/v2/players", s.pd()?);
     match s.put::<_, Vec<NameEntry>>(&url, &puuids).await {
         Err(ApiError::Status(400)) if puuids.len() > 1 => {

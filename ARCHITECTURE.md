@@ -42,61 +42,67 @@ The original Tauri command list maps onto this as follows:
 | `tracker_profile` | `Intent::LookupPlayer` / `LookupPuuid` → `Update::PlayerLookup` |
 | `settings_get` / `settings_set` | `config::load` at startup / `Intent::SaveSettings` |
 
-## Riot auth flow
+## The Riot connection layer (`riot/`)
+
+Public API (`riot/mod.rs`):
+
+```rust
+riot::connect() -> Result<RiotSession, RiotError>          // §2-§6
+riot::connect_observed(http, observe)                       // same, reporting each step
+riot::watch_state(Arc<RiotSession>) -> impl Stream<Item = GameState>   // §7, de-duplicated
+riot::watch(Arc<RiotSession>) -> impl Stream<Item = WatchEvent>        // + socket status, presence details
+riot::refresh_tokens(&RiotSession) -> Result<(), RiotError>            // §8
+```
+
+`refresh_tokens` takes `&RiotSession`, not `&mut`: the session is shared between
+tasks behind an `Arc`, so tokens and the client version sit behind a lock inside it.
 
 ```
-lockfile  (%LOCALAPPDATA%\Riot Games\Riot Client\Config\lockfile)
-  name:pid:port:password:protocol
+lockfile  (%LOCALAPPDATA%\Riot Games\Riot Client\Config\lockfile)    lockfile.rs
+  name:pid:port:password:protocol    missing → ClientNotRunning, bad → LockfileMalformed
       │
       ▼
-local API  https://127.0.0.1:<port>   basic auth riot:<password>
-  TLS: self-signed → LoopbackOnlyVerifier accepts it ONLY for loopback IPs
-  GET /entitlements/v1/token              → accessToken, token (entitlements JWT), subject (PUUID)
-  GET /product-session/v1/external-sessions → "-ares-deployment=<region>"  (fallback: /riotclient/region-locale)
-  GET /chat/v1/session                    → game_name, game_tag
-  wss://127.0.0.1:<port>  [5,"OnJsonApiEvent_chat_v4_presences"] → base64 private blob → MENUS/PREGAME/INGAME
+local API  https://127.0.0.1:<port>   Authorization: Basic base64("riot:<pw>")    local.rs (LocalAuth)
+  TLS: rustls + LoopbackOnlyVerifier (accepts any cert, only for loopback IPs);
+       on Windows, falls back once to schannel with cert checks off if rustls's handshake fails
+  retries network errors briefly (the client refuses connections right after launch)
+  GET /chat/v1/session          → puuid, game_name, game_tag, region, loaded   (404/!loaded → SignedOut)
+  GET /entitlements/v1/token    → accessToken, token, subject (must equal the chat puuid)
+  region: GET /product-session/v1/external-sessions (-ares-deployment / -config-endpoint)
+          → GET /riotclient/region-locale → chat region → region claim in the RSO token
       │
       ▼
-Riot web APIs, each request carries:
-  Authorization: Bearer <accessToken>
-  X-Riot-Entitlements-JWT: <token>
-  X-Riot-ClientPlatform: base64({"platformType":"PC",…})
-  X-Riot-ClientVersion: <valorant-api.com /v1/version → riotClientVersion; fallback ShooterGame.log>
-
-  PD   https://pd.<shard>.a.pvp.net            MMR, competitive updates, match history/details, names
-  GLZ  https://glz-<region>-1.<shard>.a.pvp.net  parties, pregame, core-game  (host regex-validated)
+Region/Shard enums → Hosts (regex-validated)                                       region.rs
+  PD  https://pd.<shard>.a.pvp.net        GLZ https://glz-<region>-1.<shard>.a.pvp.net
+  latam/br → shard na; na may be shard pbe
+      │
+      ▼
+PublicAuth::apply(): Authorization: Bearer, X-Riot-Entitlements-JWT,               auth.rs
+  X-Riot-ClientPlatform (base64 platform JSON), X-Riot-ClientVersion
+  version: ASCEND_CLIENT_VERSION → valorant-api.com → ShooterGame.log; refreshed hourly  version.rs
+      │
+      ▼
+RiotSession::send (session.rs): auth headers only to validated PD/GLZ hosts;
+  401/403 or 400 BAD_CLAIMS → refresh_tokens + retry once; version-looking 400 → refetch
+  version + retry once; 429 → Retry-After (capped); at most 4 requests in flight
 ```
 
-- Region → shard: `latam`/`br` → `na`; others map to themselves.
-- `Session::send` refuses to attach auth headers to any host that isn't a validated
-  PD/GLZ host, refreshes tokens once on 400 `BAD_CLAIMS`/401, honours `Retry-After` on
-  429 (capped), and limits concurrency to 4.
-- Credentials live in `Secret<T>` (`Debug`/`Display` print `***`, no `Serialize`).
-  Token-bearing header values are marked sensitive, and transport crates are capped at
-  `warn` in the log filter, because `tungstenite` logs raw handshake headers at TRACE.
+Live state (`state.rs`): `wss://127.0.0.1:<port>` with the same basic credentials (sent as
+a header, not as `riot:<pw>@` in the URL), subscribe `[5,"OnJsonApiEvent_chat_v4_presences"]`,
+decode our entry's base64 `private` blob → `sessionLoopState` → `GameState`. On entering
+PREGAME/INGAME the match id comes from GLZ (`/pregame|core-game/v1/players/{puuid}`). If
+the socket drops, it polls `GET /chat/v4/presences` every 3 s and retries the socket with
+exponential backoff (1 s → 30 s). Socket errors never end the stream.
 
-## Startup checklist (`diagnostics.rs`, `ui/connection.rs`)
+Lifecycle (`worker/mod.rs`, brief §9): `NotRunning` ("VALORANT isn't running") →
+`SignedOut` ("Waiting for you to sign in…") → `Connecting` ("Connecting…") → `Authed`
+("Connected as name#tag") → `Lost` (lockfile gone/changed or the port stops answering
+twice) → `NotRunning`. Not running and signed out are polled every 2.5 s; other failures
+back off 2 s → 30 s.
 
-`Supervisor::try_connect` runs the connection one step at a time (lockfile → local API
-sign-in → region → game version → Riot ID → a real `match-history` call to PD → live
-socket). It publishes a `ConnectionReport` (`Update::Connection`) after every step,
-with the full error chain and a hint for any failure. The UI shows it full-window at
-launch, continues to the home screen once `report.connected()`, and keeps it reachable
-as the Connection page.
-
-## Connection state machine (`worker/mod.rs`)
-
-```
-Disconnected ──lockfile found──▶ Session::connect ──ok──▶ Authed{pid,port}
-     ▲   │ (poll every 2.5 s)          │ err: backoff 2 s → 30 s       │ every 3 s: lockfile still same?
-     │   └── no lockfile: NotRunning ◀─┘                                │
-     └───────────────────────── client gone ───────────────────────────┘
-Authed:
-  presence websocket (reconnect with backoff; poll /chat/v4/presences every 5 s while it's down)
-  GLZ live poll: every `poll_interval` (default 5 s) in agent select / in game, every 30 s in menus,
-                 immediately on any presence state change
-  INGAME → MENUS: refresh career (match just ended)
-```
+`riot-probe` (`src/bin/riot-probe.rs`) runs milestones M1–M4 against a real client from a
+console and prints no secrets. `tests/riot_layer.rs` runs the same milestones against a fake
+client.
 
 ## Optional backend (Phase 3)
 
@@ -146,15 +152,19 @@ other. `tests/social_e2e.rs` runs the real worker against it in-process.
 | `worker/mod.rs` | tokio runtime, supervisor loop, connection + polling state machine |
 | `worker/tasks.rs` | async routines behind each intent; shared `Ctx` caches |
 | `worker/demo.rs` | `--demo`: synthetic data through the same `Update` path |
+| `riot/session.rs` | `RiotSession`, `connect`, `refresh_tokens`, the authenticated request path |
+| `riot/state.rs` | `GameState`, `watch` / `watch_state` (socket + polling fallback) |
+| `riot/version.rs` | client version sources and refresh rules |
+| `riot/error.rs` | `RiotError` |
 | `riot/lockfile.rs` | find + parse the lockfile |
 | `riot/tls.rs` | loopback-only certificate verifier |
 | `riot/local.rs` | local REST client |
 | `riot/auth.rs` | tokens + the four required headers |
 | `riot/region.rs` | region/shard, PD/GLZ host builders + validation |
-| `riot/mod.rs` | `Session`: authenticated, rate-limited request path |
+| `riot/mod.rs` | public API re-exports, `RiotId`, the public HTTP client |
 | `riot/pd.rs` | MMR, competitive updates, history, details, rank snapshot, rank probe |
 | `riot/glz.rs` | party / pregame / core-game → `LiveMatch` |
-| `riot/presence.rs` | presence blob decode + websocket task |
+| `riot/presence.rs` | presence blob decode |
 | `riot/names.rs` | batched PUUID → Riot ID with cache |
 | `riot/match_stats.rs` | raw match → `MatchDetail` with derived stats (KAST, trades, clutches…) |
 | `riot/account.rs` | optional official account-v1 lookup (`RIOT_API_KEY`) |

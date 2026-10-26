@@ -80,6 +80,11 @@ diagnostics** puts that checklist on your clipboard (no passwords or tokens) for
 report, and **Open logs folder** shows the log files. You can come back to the
 checklist any time by clicking the status bar or the **Connection** tab.
 
+`riot-probe.exe` (included in the download) checks the same connection from a console
+window and prints each step: your Riot ID, a test call to Riot's servers, then live game
+state as you go into agent select and a match. It prints no passwords or tokens, so you
+can paste the output into a bug report.
+
 ### Player lookup
 
 Riot exposes no public "name#tag → player" endpoint to client tokens, so lookups find

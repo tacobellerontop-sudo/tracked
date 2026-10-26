@@ -1,13 +1,18 @@
-use ascend_lite::riot::auth::{client_platform_header, RiotAuth};
-use ascend_lite::riot::region::{is_riot_api_host, is_valid_glz_host, region_from_launch_args, Region};
+use ascend_lite::riot::auth::{client_platform_header, PublicAuth, CLIENT_PLATFORM_JSON};
+use ascend_lite::riot::region::{
+    from_launch_args, is_riot_api_host, is_valid_glz_host, region_from_launch_args, shard_from_launch_args,
+};
+use ascend_lite::riot::{Hosts, Region, Shard};
 use ascend_lite::secret::Secret;
 use base64::Engine;
 
 #[test]
-fn platform_header_decodes_to_expected_json() {
+fn platform_header_decodes_to_the_exact_json() {
     let raw = base64::engine::general_purpose::STANDARD
         .decode(client_platform_header())
         .unwrap();
+    assert_eq!(std::str::from_utf8(&raw).unwrap(), CLIENT_PLATFORM_JSON);
+    assert!(!client_platform_header().contains('\n'));
     let v: serde_json::Value = serde_json::from_slice(&raw).unwrap();
     assert_eq!(v["platformType"], "PC");
     assert_eq!(v["platformOS"], "Windows");
@@ -16,13 +21,12 @@ fn platform_header_decodes_to_expected_json() {
 }
 
 #[test]
-fn builds_all_four_headers_and_hides_tokens() {
-    let auth = RiotAuth {
-        access_token: Secret::new("tok123".into()),
-        entitlements_jwt: Secret::new("jwt456".into()),
-        puuid: "p".into(),
-        client_version: "release-09.05-shipping-21-2843553".into(),
-    };
+fn public_auth_sets_all_four_headers_and_hides_tokens() {
+    let auth = PublicAuth::new(
+        Secret::new("tok123".into()),
+        Secret::new("jwt456".into()),
+        "release-09.05-shipping-21-2843553".into(),
+    );
     let h = auth.headers().unwrap();
     assert_eq!(h["authorization"], "Bearer tok123");
     assert_eq!(h["x-riot-entitlements-jwt"], "jwt456");
@@ -32,31 +36,49 @@ fn builds_all_four_headers_and_hides_tokens() {
     assert!(h["x-riot-entitlements-jwt"].is_sensitive());
     let dbg = format!("{auth:?} {h:?}");
     assert!(!dbg.contains("tok123") && !dbg.contains("jwt456"), "{dbg}");
+
+    // apply() puts the same four on a request.
+    let req = auth
+        .apply(reqwest::Client::new().get("https://pd.na.a.pvp.net/x"))
+        .build()
+        .unwrap();
+    for name in [
+        "authorization",
+        "x-riot-entitlements-jwt",
+        "x-riot-clientplatform",
+        "x-riot-clientversion",
+    ] {
+        assert!(req.headers().contains_key(name), "{name}");
+    }
 }
 
 #[test]
-fn region_shard_mapping_and_hosts() {
+fn region_to_shard_mapping_and_hosts() {
     let cases = [
-        ("na", "na"),
-        ("latam", "na"),
-        ("br", "na"),
-        ("eu", "eu"),
-        ("ap", "ap"),
-        ("kr", "kr"),
+        (Region::Na, Shard::Na),
+        (Region::Latam, Shard::Na),
+        (Region::Br, Shard::Na),
+        (Region::Eu, Shard::Eu),
+        (Region::Ap, Shard::Ap),
+        (Region::Kr, Shard::Kr),
     ];
     for (region, shard) in cases {
-        let r = Region::new(region).unwrap();
-        assert_eq!(r.shard, shard);
-        assert_eq!(r.pd_base().unwrap(), format!("https://pd.{shard}.a.pvp.net"));
-        assert_eq!(
-            r.glz_base().unwrap(),
-            format!("https://glz-{region}-1.{shard}.a.pvp.net")
-        );
+        assert_eq!(region.default_shard(), shard);
+        let h = Hosts::new(region, shard).unwrap();
+        assert_eq!(h.pd, format!("https://pd.{shard}.a.pvp.net"));
+        assert_eq!(h.glz, format!("https://glz-{region}-1.{shard}.a.pvp.net"));
+        assert!(is_valid_glz_host(h.glz.trim_start_matches("https://")));
     }
-    assert_eq!(Region::new(" EU ").unwrap().region, "eu");
-    assert!(Region::new("mars").is_err());
-    assert!(Region::new("").is_err());
-    assert!(Region::new("na.evil.com/").is_err());
+    // NA can also be on the PBE shard; other combinations are rejected.
+    assert_eq!(
+        Hosts::new(Region::Na, Shard::Pbe).unwrap().glz,
+        "https://glz-na-1.pbe.a.pvp.net"
+    );
+    assert!(Hosts::new(Region::Eu, Shard::Na).is_err());
+    assert!(Hosts::new(Region::Latam, Shard::Eu).is_err());
+    assert_eq!(Region::parse(" EU "), Some(Region::Eu));
+    assert_eq!(Region::parse("mars"), None);
+    assert_eq!(Region::parse("na.evil.com/"), None);
 }
 
 #[test]
@@ -80,14 +102,44 @@ fn auth_headers_only_for_riot_hosts() {
 }
 
 #[test]
-fn region_from_args() {
+fn region_from_launch_arguments() {
     let args = [
         "-foo",
         "-ares-deployment=AP",
         "-config-endpoint=https://shared.ap.a.pvp.net",
     ];
     assert_eq!(region_from_launch_args(&args).as_deref(), Some("ap"));
-    assert_eq!(region_from_launch_args(&["-x"]), None);
+    assert_eq!(from_launch_args(&args), Some((Region::Ap, Shard::Ap)));
+    let latam = ["-ares-deployment=latam", "-config-endpoint=https://shared.na.a.pvp.net"];
+    assert_eq!(from_launch_args(&latam), Some((Region::Latam, Shard::Na)));
+    let pbe = ["-ares-deployment=pbe", "-config-endpoint=https://shared.pbe.a.pvp.net"];
+    assert_eq!(from_launch_args(&pbe), Some((Region::Na, Shard::Pbe)));
+    let only_endpoint = ["-config-endpoint=https://shared.kr.a.pvp.net"];
+    assert_eq!(from_launch_args(&only_endpoint), Some((Region::Kr, Shard::Kr)));
+    assert_eq!(from_launch_args(&["-x"]), None);
+    assert_eq!(shard_from_launch_args(&["-config-endpoint=https://evil.com"]), None);
+}
+
+#[test]
+fn region_hints_cover_riot_naming() {
+    for (hint, want) in [
+        ("NA", Region::Na),
+        ("na1", Region::Na),
+        ("EUW", Region::Eu),
+        ("eune1", Region::Eu),
+        ("eu3", Region::Eu),
+        ("TR", Region::Eu),
+        ("OC1", Region::Ap),
+        ("jp1", Region::Ap),
+        ("KR", Region::Kr),
+        ("br1", Region::Br),
+        ("LA1", Region::Latam),
+        ("las", Region::Latam),
+    ] {
+        assert_eq!(Region::from_hint(hint), Some(want), "{hint}");
+    }
+    assert_eq!(Region::from_hint(""), None);
+    assert_eq!(Region::from_hint("mars"), None);
 }
 
 #[test]
@@ -98,30 +150,4 @@ fn ci_version_from_log() {
         Some("release-09.05-shipping-21-2843553")
     );
     assert_eq!(ascend_lite::riot::parse_ci_version("nothing"), None);
-}
-
-#[test]
-fn region_hints_cover_riot_naming() {
-    use ascend_lite::riot::region::{region_from_hint, shard_from_launch_args};
-    for (hint, want) in [
-        ("NA", "na"),
-        ("na1", "na"),
-        ("EUW", "eu"),
-        ("eune1", "eu"),
-        ("eu3", "eu"),
-        ("TR", "eu"),
-        ("OC1", "ap"),
-        ("jp1", "ap"),
-        ("KR", "kr"),
-        ("br1", "br"),
-        ("LA1", "latam"),
-        ("las", "latam"),
-    ] {
-        assert_eq!(region_from_hint(hint).as_deref(), Some(want), "{hint}");
-    }
-    assert_eq!(region_from_hint(""), None);
-    assert_eq!(region_from_hint("mars"), None);
-    let args = ["-x", "-config-endpoint=https://shared.eu.a.pvp.net"];
-    assert_eq!(shard_from_launch_args(&args).as_deref(), Some("eu"));
-    assert_eq!(shard_from_launch_args(&["-config-endpoint=https://evil.com"]), None);
 }

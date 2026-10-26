@@ -91,21 +91,6 @@ impl Ctx {
         tracing::warn!("{e}");
         self.sink.send(Update::Error(UserFacingError::from(e)));
     }
-
-    /// Riot client version: env override, catalog, valorant-api.com, then
-    /// the "CI server version" line in VALORANT's own log file.
-    pub async fn client_version(&self) -> Result<String, ApiError> {
-        if let Ok(v) = std::env::var("ASCEND_CLIENT_VERSION") {
-            return Ok(v);
-        }
-        if let Some(v) = self.catalog().client_version.clone() {
-            return Ok(v);
-        }
-        match valorant_api::client_version(&self.http).await {
-            Ok(v) => Ok(v),
-            Err(e) => crate::riot::client_version_from_log().await.ok_or(e),
-        }
-    }
 }
 
 /// Load valorant-api content, publish it, then cache icons and republish.
@@ -190,7 +175,7 @@ async fn career_inner(ctx: &Arc<Ctx>) -> Result<(), ApiError> {
 
     ctx.sink.send(Update::Career(CareerSummary {
         puuid: s.puuid.clone(),
-        riot_id: s.riot_id.clone(),
+        riot_id: Some(s.riot_id()),
         rank,
         rr_history,
         matches: history.history.clone(),
@@ -421,7 +406,7 @@ async fn lookup_inner(ctx: &Arc<Ctx>, q: LookupQuery) -> Result<(PlayerCard, Vec
         LookupQuery::RiotId { name, tag } => match ctx.names.find(&name, &tag) {
             Some(p) => p,
             None => match account::api_key() {
-                Some(key) => account::puuid_by_riot_id(&ctx.http, &s.region.region, &name, &tag, &key).await?,
+                Some(key) => account::puuid_by_riot_id(&ctx.http, s.region.as_str(), &name, &tag, &key).await?,
                 None => {
                     return Err(ApiError::Other(
                         "Player not seen yet. Lookups work for friends, recent teammates/opponents and \

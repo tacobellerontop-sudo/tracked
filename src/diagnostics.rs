@@ -18,12 +18,13 @@ pub enum Step {
 }
 
 impl Step {
+    /// In the order `riot::connect_observed` runs them.
     pub const ALL: [Step; 7] = [
         Step::Lockfile,
         Step::LocalApi,
+        Step::Identity,
         Step::Region,
         Step::ClientVersion,
-        Step::Identity,
         Step::RiotServers,
         Step::LiveUpdates,
     ];

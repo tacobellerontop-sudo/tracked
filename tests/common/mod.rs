@@ -38,6 +38,17 @@ fn index_of(puuid: &str) -> usize {
     (0..10).find(|i| player(*i) == puuid).unwrap_or(0)
 }
 
+/// Bump to rotate the access token: the old one then gets 401 from PD/GLZ
+/// and entitlements hands out the new one (tests token refresh).
+pub static TOKEN_GEN: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+/// Set to false to make the chat session report "not signed in".
+pub static SIGNED_IN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// The access token the fake server currently accepts.
+pub fn access_token() -> String {
+    format!("{ACCESS_TOKEN}-{}", TOKEN_GEN.load(std::sync::atomic::Ordering::SeqCst))
+}
+
 /// Every PUUID the app asked the name service about.
 pub static NAME_REQUESTS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
@@ -143,10 +154,11 @@ fn is_riot_path(path: &str) -> bool {
 fn route(path: &str) -> Option<serde_json::Value> {
     Some(match path {
         "/entitlements/v1/token" => serde_json::json!({
-            "accessToken": ACCESS_TOKEN, "token": ENT_TOKEN, "subject": PUUID, "entitlements": [], "issuer": "test"
+            "accessToken": access_token(), "token": ENT_TOKEN, "subject": PUUID, "entitlements": [], "issuer": "test"
         }),
         "/chat/v1/session" => serde_json::json!({
-            "puuid": PUUID, "game_name": "Tester", "game_tag": "0001", "region": "eu1", "loaded": true
+            "puuid": PUUID, "game_name": "Tester", "game_tag": "0001", "region": "eu1",
+            "loaded": SIGNED_IN.load(std::sync::atomic::Ordering::SeqCst)
         }),
         "/product-session/v1/external-sessions" => serde_json::json!({
             "host_app": { "productId": "riot_client", "launchConfiguration": { "arguments": [] } },
@@ -222,7 +234,7 @@ async fn serve<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(mut s: S
     let clean_path = path.split('?').next().unwrap_or("").to_string();
 
     if is_riot_path(&clean_path) {
-        let ok = header("authorization").as_deref() == Some(format!("Bearer {ACCESS_TOKEN}").as_str())
+        let ok = header("authorization").as_deref() == Some(format!("Bearer {}", access_token()).as_str())
             && header("x-riot-entitlements-jwt").as_deref() == Some(ENT_TOKEN)
             && header("x-riot-clientversion").as_deref() == Some(CLIENT_VERSION)
             && header("x-riot-clientplatform").is_some();
