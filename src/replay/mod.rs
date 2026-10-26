@@ -7,6 +7,7 @@
 
 pub mod calibrate;
 pub mod fetch;
+pub mod timeline;
 
 use std::collections::{HashMap, HashSet};
 
@@ -114,6 +115,8 @@ pub struct RoundReplay {
     pub frames: Vec<Frame>,
     pub feed: Vec<FeedEntry>,
     pub plant_site: Option<String>,
+    /// Continuous playback of this round (see [`timeline`]).
+    pub timeline: timeline::RoundTimeline,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -374,7 +377,7 @@ pub fn build_round(r: &RoundRaw, team_of: &HashMap<&str, &PlayerMeta>) -> RoundR
         .as_deref()
         .and_then(|p| team_of.get(p))
         .map(|m| m.team.clone());
-    RoundReplay {
+    let mut round = RoundReplay {
         num: r.round_num,
         winning_team: r.winning_team.clone(),
         result: r.round_result.clone(),
@@ -382,5 +385,8 @@ pub fn build_round(r: &RoundRaw, team_of: &HashMap<&str, &PlayerMeta>) -> RoundR
         frames,
         feed,
         plant_site: r.plant_site.clone().filter(|s| !s.is_empty()),
-    }
+        timeline: timeline::RoundTimeline::default(),
+    };
+    round.timeline = timeline::RoundTimeline::build(&round);
+    round
 }

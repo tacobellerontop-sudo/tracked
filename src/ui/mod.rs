@@ -36,11 +36,12 @@ const NAV: &[(Screen, &str, Icon, egui::Key)] = &[
     (Screen::Home, "Home", Icon::Home, egui::Key::Num1),
     (Screen::Live, "Live", Icon::Live, egui::Key::Num2),
     (Screen::Matches, "Matches", Icon::Matches, egui::Key::Num3),
-    (Screen::Agents, "Agents", Icon::Agents, egui::Key::Num4),
-    (Screen::Lookup, "Players", Icon::Search, egui::Key::Num5),
-    (Screen::Crosshairs, "Crosshairs", Icon::Crosshair, egui::Key::Num6),
-    (Screen::Social, "Social", Icon::Social, egui::Key::Num7),
-    (Screen::Settings, "Settings", Icon::Settings, egui::Key::Num8),
+    (Screen::Replays, "Replays", Icon::Map, egui::Key::Num4),
+    (Screen::Agents, "Agents", Icon::Agents, egui::Key::Num5),
+    (Screen::Lookup, "Players", Icon::Search, egui::Key::Num6),
+    (Screen::Crosshairs, "Crosshairs", Icon::Crosshair, egui::Key::Num7),
+    (Screen::Social, "Social", Icon::Social, egui::Key::Num8),
+    (Screen::Settings, "Settings", Icon::Settings, egui::Key::Num9),
 ];
 
 const SIDEBAR_W: f32 = 210.0;
@@ -125,6 +126,7 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState, intents: &IntentTx) {
                 match state.screen {
                     Screen::Home => home::ui(ui, state, intents),
                     Screen::Matches => pages::matches(ui, state, intents),
+                    Screen::Replays => pages::replays(ui, state, intents),
                     Screen::Agents => pages::agents(ui, state),
                     Screen::Live => theme::card(ui, None, |ui| live::ui(ui, state, intents)),
                     Screen::Lookup => theme::card(ui, None, |ui| lookup::ui(ui, state, intents)),
@@ -371,6 +373,7 @@ fn top_bar(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
                 Screen::Connection => "Connection",
                 Screen::MatchDetail => "Match",
                 Screen::Replay => "Replay",
+                Screen::Replays => "Replays",
             };
             ui.label(RichText::new(title).size(12.0).color(p.faint));
         });

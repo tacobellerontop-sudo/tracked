@@ -215,3 +215,59 @@ fn every_round_of_a_full_match_holds_together() {
         );
     }
 }
+
+#[test]
+fn playback_is_exact_at_recorded_moments_and_smooth_between() {
+    let replay = from_raw(&fixture());
+    let tl = &replay.rounds[0].timeline;
+    let pose = |t: f32, who: &str| tl.poses_at(t).into_iter().find(|p| p.puuid == who).unwrap();
+
+    // At the 22s kill A1 is exactly where the API put them, and B3 is down.
+    let a1 = pose(22000.0, A1);
+    assert_eq!(a1.pos, Loc { x: 2000.0, y: -6500.0 });
+    assert!(a1.alive && a1.exact);
+    assert!(!pose(22000.0, B3).alive);
+    // At the plant (41s), the plant snapshot.
+    assert_eq!(pose(41000.0, A1).pos, Loc { x: 6100.0, y: -7400.0 });
+    // Between them: on the way, and marked as not exact.
+    let mid = pose(31500.0, A1);
+    assert!(!mid.exact);
+    assert!(mid.pos.x > 2000.0 && mid.pos.x < 6100.0, "{:?}", mid.pos);
+    // A2 dies at 47s in a kill with no positions: alive before, down after,
+    // where they were last seen.
+    assert!(pose(46000.0, A2).alive);
+    let a2 = pose(47000.0, A2);
+    assert!(!a2.alive);
+    assert_eq!(a2.pos, Loc { x: 6550.0, y: -7000.0 });
+    // The timeline starts a little before the first event and ends after the last.
+    assert!(tl.start < 22000.0 && tl.end > 62000.0);
+}
+
+#[test]
+fn playback_matches_every_snapshot_of_a_full_match() {
+    let m = tracked::worker::demo::synthetic_replay(5);
+    for r in &m.rounds {
+        let tl = &r.timeline;
+        for f in &r.frames {
+            let poses = tl.poses_at(f.t_ms as f32);
+            for p in f.positions.iter().filter(|p| p.alive) {
+                let got = poses.iter().find(|x| x.puuid == p.puuid).expect("pose");
+                assert!(got.alive, "round {} t {}: {} should be alive", r.num, f.t_ms, p.puuid);
+                assert!((got.pos.x - p.pos.x).abs() < 0.5 && (got.pos.y - p.pos.y).abs() < 0.5);
+            }
+        }
+        // Sweep the round: nobody comes back after dying.
+        let mut dead = std::collections::HashSet::new();
+        let mut t = tl.start;
+        while t <= tl.end {
+            for p in tl.poses_at(t) {
+                if p.alive {
+                    assert!(!dead.contains(p.puuid), "round {} t {t}: {} revived", r.num, p.puuid);
+                } else {
+                    dead.insert(p.puuid.to_string());
+                }
+            }
+            t += 250.0;
+        }
+    }
+}

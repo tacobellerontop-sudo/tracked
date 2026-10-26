@@ -1,6 +1,7 @@
-//! 2D replay screen: the match drawn top-down on the map's minimap, one
-//! snapshot per kill / plant / defuse, with round chips, playback controls
-//! and a kill feed. Everything here is painted with egui's `Painter`.
+//! 2D replay screen: the match drawn top-down on the map's minimap and
+//! played like a video, with round chips, a scrubbable timeline and a kill
+//! feed. Positions are exact at each kill / plant / defuse and smoothed in
+//! between (see `replay::timeline`). Everything is painted with `Painter`.
 
 use std::sync::Arc;
 
@@ -13,12 +14,15 @@ use crate::content::valorant_api::queue_name;
 use crate::content::Catalog;
 use crate::ipc::IntentTx;
 use crate::replay::calibrate::{facing, world_to_norm, MapCal};
+use crate::replay::timeline::RoundTimeline;
 use crate::replay::{Availability, Frame, FrameKind, Loc, MatchReplay, RoundReplay};
 
 const FEED_W: f32 = 300.0;
 const ALLY: Color32 = Color32::from_rgb(38, 186, 168);
 const ENEMY: Color32 = Color32::from_rgb(236, 72, 88);
 const SPIKE: Color32 = Color32::from_rgb(255, 196, 0);
+/// How long a kill line stays on screen after the kill (round ms).
+const KILL_FLASH: f32 = 1600.0;
 
 pub fn ui(ui: &mut Ui, state: &mut AppState, intents: &IntentTx) {
     let p = pal(ui.ctx());
@@ -76,14 +80,9 @@ pub fn ui(ui: &mut Ui, state: &mut AppState, intents: &IntentTx) {
     ui.add_space(10.0);
 
     let round = &m.rounds[state.replay.round];
-    if round.frames.is_empty() {
-        state.replay.frame = 0;
-    } else {
-        state.replay.frame = state.replay.frame.min(round.frames.len() - 1);
-    }
     let avail = ui.available_size();
-    // Leave room under the map for the controls, label and slider.
-    let side = (avail.x - FEED_W - 20.0).min(avail.y - 112.0).max(260.0);
+    // Leave room under the map for the timeline and controls.
+    let side = (avail.x - FEED_W - 20.0).min(avail.y - 96.0).max(260.0);
     ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
             ui.set_width(side);
@@ -148,7 +147,7 @@ fn header(ui: &mut Ui, state: &mut AppState, p: &Palette) {
     });
     ui.label(
         RichText::new(
-            "Positions are snapshots taken at each kill, plant and defuse (that's all the match data records), not continuous movement.",
+            "Riot records positions only at each kill, plant and defuse; movement in between is smoothed for viewing, not tracked.",
         )
         .size(11.5)
         .color(p.faint),
@@ -185,6 +184,12 @@ fn team_color(team: &str, mine: &str) -> Color32 {
     }
 }
 
+/// The playback clock for the current round, defaulting to its start.
+fn now_t(state: &AppState, m: &MatchReplay) -> f32 {
+    let tl = &m.rounds[state.replay.round].timeline;
+    state.replay.t.unwrap_or(tl.start).clamp(tl.start, tl.end)
+}
+
 fn keyboard(ui: &mut Ui, state: &mut AppState, m: &MatchReplay) {
     if ui.ctx().wants_keyboard_input() {
         return;
@@ -199,10 +204,10 @@ fn keyboard(ui: &mut Ui, state: &mut AppState, m: &MatchReplay) {
         )
     });
     if left {
-        step(state, m, -1);
+        seek_event(state, m, -1);
     }
     if right {
-        step(state, m, 1);
+        seek_event(state, m, 1);
     }
     if up {
         jump_round(state, m, -1);
@@ -211,57 +216,68 @@ fn keyboard(ui: &mut Ui, state: &mut AppState, m: &MatchReplay) {
         jump_round(state, m, 1);
     }
     if space {
-        toggle_play(ui, state);
+        toggle_play(state, m);
     }
 }
 
-fn toggle_play(ui: &Ui, state: &mut AppState) {
+fn toggle_play(state: &mut AppState, m: &MatchReplay) {
+    // Pressing play at the very end restarts the round.
+    let tl = &m.rounds[state.replay.round].timeline;
+    if !state.replay.playing && now_t(state, m) >= tl.end - 1.0 {
+        state.replay.t = Some(tl.start);
+    }
     state.replay.playing = !state.replay.playing;
-    state.replay.next_step_at = ui.input(|i| i.time) + 1.0 / state.replay.speed.max(0.25) as f64;
 }
 
-/// Move one frame; past either end of a round, continue into the next or
-/// previous round. Returns false at the very end of the match.
-fn step(state: &mut AppState, m: &MatchReplay, dir: i32) -> bool {
-    let r = &mut state.replay;
-    let frames = m.rounds[r.round].frames.len();
+/// Jump to the previous / next recorded moment (kill, plant, defuse),
+/// crossing into neighbouring rounds at the ends.
+fn seek_event(state: &mut AppState, m: &MatchReplay, dir: i32) {
+    let t = now_t(state, m);
+    let tl = &m.rounds[state.replay.round].timeline;
     if dir > 0 {
-        if r.frame + 1 < frames {
-            r.frame += 1;
-        } else if r.round + 1 < m.rounds.len() {
-            r.round += 1;
-            r.frame = 0;
-        } else {
-            return false;
+        match tl.events.iter().find(|e| e.0 > t + 1.0) {
+            Some(e) => state.replay.t = Some(e.0),
+            None if state.replay.round + 1 < m.rounds.len() => jump_round(state, m, 1),
+            None => state.replay.t = Some(tl.end),
         }
-    } else if r.frame > 0 {
-        r.frame -= 1;
-    } else if r.round > 0 {
-        r.round -= 1;
-        r.frame = m.rounds[r.round].frames.len().saturating_sub(1);
+    } else {
+        match tl.events.iter().rev().find(|e| e.0 < t - 1.0) {
+            Some(e) => state.replay.t = Some(e.0),
+            None if t > tl.start + 1.0 => state.replay.t = Some(tl.start),
+            None if state.replay.round > 0 => {
+                jump_round(state, m, -1);
+                state.replay.t = Some(m.rounds[state.replay.round].timeline.end);
+            }
+            None => {}
+        }
     }
-    true
 }
 
 fn jump_round(state: &mut AppState, m: &MatchReplay, dir: i32) {
     let r = &mut state.replay;
     r.round = (r.round as i32 + dir).clamp(0, m.rounds.len() as i32 - 1) as usize;
-    r.frame = 0;
+    r.t = None;
 }
 
+/// Advance the clock in real time while playing; roll into the next round.
 fn playback(ui: &Ui, state: &mut AppState, m: &MatchReplay) {
     if !state.replay.playing {
         return;
     }
-    let now = ui.input(|i| i.time);
-    if now >= state.replay.next_step_at {
-        if !step(state, m, 1) {
+    let dt = ui.input(|i| i.stable_dt).min(0.1);
+    let t = now_t(state, m) + dt * 1000.0 * state.replay.speed;
+    let tl = &m.rounds[state.replay.round].timeline;
+    if t >= tl.end {
+        if state.replay.round + 1 < m.rounds.len() {
+            jump_round(state, m, 1);
+        } else {
+            state.replay.t = Some(tl.end);
             state.replay.playing = false;
         }
-        state.replay.next_step_at = now + 1.0 / state.replay.speed.max(0.25) as f64;
+    } else {
+        state.replay.t = Some(t);
     }
-    let wait = (state.replay.next_step_at - now).max(0.0);
-    ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(wait));
+    ui.ctx().request_repaint();
 }
 
 fn round_chips(ui: &mut Ui, state: &mut AppState, m: &MatchReplay, mine: &str, p: &Palette) {
@@ -300,7 +316,7 @@ fn round_chips(ui: &mut Ui, state: &mut AppState, m: &MatchReplay, mine: &str, p
             );
             if resp.on_hover_text(tip).clicked() {
                 state.replay.round = i;
-                state.replay.frame = 0;
+                state.replay.t = None;
             }
         }
     });
@@ -376,7 +392,8 @@ fn map_canvas(
         );
         return;
     }
-    let Some(frame) = round.frames.get(state.replay.frame) else {
+    let tl = &round.timeline;
+    if tl.tracks.is_empty() {
         let text = if round.feed.is_empty() {
             "No kills this round".to_string()
         } else {
@@ -384,16 +401,15 @@ fn map_canvas(
         };
         overlay_note(&painter, rect, p, &format!("{text} · {}", outcome(round, mine)));
         return;
-    };
-    // A planted spike stays on the map for the rest of the round.
-    let planted = round.frames[..state.replay.frame]
-        .iter()
-        .rev()
-        .find_map(|f| f.marker.as_ref().filter(|mk| mk.kind == FrameKind::Plant));
-    if let (Some(mk), None) = (planted, &frame.marker) {
-        spike_marker(&painter, mk, &cal, rect, (rect.width() / 640.0).clamp(0.75, 1.4), 0.75);
     }
-    draw_frame(ui, &painter, frame, m, cat, &cal, rect, mine, p, resp.hover_pos());
+    let t = now_t(state, m);
+    draw_moment(ui, &painter, round, tl, t, m, cat, &cal, rect, mine, resp.hover_pos());
+    // Round clock in the corner, like a broadcast overlay.
+    let label = format!("Round {}  ·  {}", state.replay.round + 1, clock(t.max(0.0) as u32));
+    let g = painter.layout_no_wrap(label, theme::semibold(12.0), Color32::WHITE);
+    let r = Rect::from_min_size(rect.left_top() + vec2(12.0, 12.0), g.size() + vec2(18.0, 10.0));
+    painter.rect_filled(r, CornerRadius::same(8), Color32::from_black_alpha(150));
+    painter.galley(r.min + vec2(9.0, 5.0), g, Color32::WHITE);
 }
 
 fn overlay_note(painter: &egui::Painter, rect: Rect, p: &Palette, text: &str) {
@@ -411,75 +427,104 @@ fn outcome(round: &RoundReplay, mine: &str) -> String {
     }
 }
 
+/// Draw the round at time `t`: smoothed player positions, kill lines that
+/// flash in as kills happen, the spike once it's down.
 #[allow(clippy::too_many_arguments)]
-fn draw_frame(
+fn draw_moment(
     ui: &Ui,
     painter: &egui::Painter,
-    f: &Frame,
+    round: &RoundReplay,
+    tl: &RoundTimeline,
+    t: f32,
     m: &MatchReplay,
     cat: &Catalog,
     cal: &MapCal,
     rect: Rect,
     mine: &str,
-    p: &Palette,
     hover: Option<Pos2>,
 ) {
     let scale = (rect.width() / 640.0).clamp(0.75, 1.4);
     let r = 11.0 * scale;
-    let pos_of = |puuid: &str| {
-        f.positions
+    let poses = tl.poses_at(t);
+    let screen_of = |puuid: &str| {
+        poses
             .iter()
             .find(|x| x.puuid == puuid)
             .map(|x| to_screen(&x.pos, cal, rect))
     };
 
-    // Kill line under the dots.
-    if let Some(k) = &f.kill {
-        if let (Some(a), Some(b)) = (pos_of(&k.killer), pos_of(&k.victim)) {
-            let team = m.player(&k.killer).map(|x| x.team.as_str()).unwrap_or_default();
-            let c = team_color(team, mine);
-            painter.line_segment([a, b], Stroke::new(2.5_f32 * scale, c.gamma_multiply(0.85)));
-            let dir = (b - a).normalized();
-            let tip = b - dir * (r + 2.0);
-            let n = vec2(-dir.y, dir.x);
-            painter.add(egui::Shape::convex_polygon(
-                vec![
-                    tip,
-                    tip - dir * 9.0 * scale + n * 5.0 * scale,
-                    tip - dir * 9.0 * scale - n * 5.0 * scale,
-                ],
-                c,
-                Stroke::NONE,
-            ));
+    // Spike: from the plant on; the defuse marker once defused.
+    for f in round
+        .frames
+        .iter()
+        .filter(|f| f.kind != FrameKind::Kill && f.t_ms as f32 <= t)
+    {
+        if let Some(mk) = &f.marker {
+            let age = t - f.t_ms as f32;
+            let pulse = if age < 1200.0 {
+                1.0 + 0.35 * (1.0 - age / 1200.0)
+            } else {
+                1.0
+            };
+            spike_marker(painter, mk, cal, rect, scale * pulse, 1.0);
         }
     }
-    if let Some(mk) = &f.marker {
-        spike_marker(painter, mk, cal, rect, scale, 1.0);
+
+    // Recent kills: a line from the killer (where they are now) to where the
+    // victim fell, fading out.
+    let mut flashing: Vec<(&str, &str, f32, bool)> = Vec::new();
+    for f in round.frames.iter().filter(|f| f.kind == FrameKind::Kill) {
+        let age = t - f.t_ms as f32;
+        if !(0.0..KILL_FLASH).contains(&age) {
+            continue;
+        }
+        let Some(k) = &f.kill else { continue };
+        let alpha = 1.0 - age / KILL_FLASH;
+        flashing.push((k.killer.as_str(), k.victim.as_str(), alpha, k.headshot));
+        if let (Some(a), Some(b)) = (screen_of(&k.killer), screen_of(&k.victim)) {
+            let team = m.player(&k.killer).map(|x| x.team.as_str()).unwrap_or_default();
+            let c = team_color(team, mine).gamma_multiply(0.9 * alpha);
+            painter.line_segment([a, b], Stroke::new(2.5_f32 * scale, c));
+            if a.distance(b) > r * 2.0 {
+                let dir = (b - a).normalized();
+                let tip = b - dir * (r + 2.0);
+                let n = vec2(-dir.y, dir.x);
+                painter.add(egui::Shape::convex_polygon(
+                    vec![
+                        tip,
+                        tip - dir * 9.0 * scale + n * 5.0 * scale,
+                        tip - dir * 9.0 * scale - n * 5.0 * scale,
+                    ],
+                    c,
+                    Stroke::NONE,
+                ));
+            }
+        }
     }
 
-    let mut hovered: Option<&crate::replay::PlacedPlayer> = None;
+    let mut hovered = None;
     // Dead first so the living draw on top.
     for alive in [false, true] {
-        for pl in f.positions.iter().filter(|x| x.alive == alive) {
+        for pl in poses.iter().filter(|x| x.alive == alive) {
             let c = to_screen(&pl.pos, cal, rect);
-            let color = team_color(&pl.team, mine);
+            let color = team_color(pl.team, mine);
             if hover.is_some_and(|h| h.distance(c) <= r + 3.0) {
                 hovered = Some(pl);
             }
             if !alive {
-                let is_victim = f.kill.as_ref().is_some_and(|k| k.victim == pl.puuid);
-                let (s, ink) = if is_victim {
-                    (6.5 * scale, ENEMY.lerp_to_gamma(Color32::WHITE, 0.1))
-                } else {
-                    (4.5 * scale, color.gamma_multiply(0.55))
+                let flash = flashing.iter().find(|f| f.1 == pl.puuid);
+                let (s, ink) = match flash {
+                    Some(_) => (6.5 * scale, Color32::WHITE),
+                    None => (4.5 * scale, color.gamma_multiply(0.6)),
                 };
-                if is_victim {
-                    painter.circle_filled(c, r * 0.9, Color32::from_black_alpha(140));
+                if let Some(f) = flash {
+                    painter.circle_filled(c, r * (1.0 + 0.6 * f.2), color.gamma_multiply(0.35 * f.2));
+                    painter.circle_filled(c, r * 0.85, Color32::from_black_alpha(150));
                 }
                 let st = Stroke::new(2.2_f32 * scale, ink);
                 painter.line_segment([c + vec2(-s, -s), c + vec2(s, s)], st);
                 painter.line_segment([c + vec2(-s, s), c + vec2(s, -s)], st);
-                if is_victim && f.kill.as_ref().is_some_and(|k| k.headshot) {
+                if flash.is_some_and(|f| f.3) {
                     headshot_mark(painter, c + vec2(r + 6.0, -r - 4.0), scale);
                 }
                 continue;
@@ -494,7 +539,7 @@ fn draw_frame(
             }
             painter.circle_filled(c, r + 2.0, Color32::from_black_alpha(150));
             painter.circle_filled(c, r, color);
-            let agent = cat.agent(&pl.agent);
+            let agent = cat.agent(pl.agent);
             match agent.map(|a| a.icon.as_str()).filter(|u| !u.is_empty()) {
                 Some(uri) => {
                     let ir = Rect::from_center_size(c, vec2(2.0 * r - 3.0, 2.0 * r - 3.0));
@@ -505,7 +550,7 @@ fn draw_frame(
                 None => {
                     let letter = agent
                         .map(|a| a.name.chars().next().unwrap_or('?'))
-                        .or_else(|| m.player(&pl.puuid).and_then(|x| x.name.chars().next()))
+                        .or_else(|| m.player(pl.puuid).and_then(|x| x.name.chars().next()))
                         .unwrap_or('?');
                     painter.text(
                         c,
@@ -516,23 +561,22 @@ fn draw_frame(
                     );
                 }
             }
-            if f.kill.as_ref().is_some_and(|k| k.killer == pl.puuid) {
-                painter.circle_stroke(c, r + 3.5, Stroke::new(2.0_f32, Color32::WHITE));
+            if let Some(f) = flashing.iter().find(|f| f.0 == pl.puuid) {
+                painter.circle_stroke(c, r + 3.5, Stroke::new(2.0_f32, Color32::WHITE.gamma_multiply(f.2)));
             }
         }
     }
     if let Some(pl) = hovered {
         let name = m
-            .player(&pl.puuid)
+            .player(pl.puuid)
             .map(|x| format!("{}#{}", x.name, x.tag))
             .unwrap_or_default();
-        let agent = cat.agent(&pl.agent).map(|a| a.name.clone()).unwrap_or_default();
+        let agent = cat.agent(pl.agent).map(|a| a.name.clone()).unwrap_or_default();
         let text = format!("{name}\n{agent}{}", if pl.alive { "" } else { " · dead" });
         egui::show_tooltip_at_pointer(ui.ctx(), ui.layer_id(), egui::Id::new("replay-dot"), |ui| {
             ui.label(text);
         });
     }
-    let _ = p;
 }
 
 /// Diamond at the plant (yellow) or defuse (teal) spot, with the site letter.
@@ -568,8 +612,10 @@ fn headshot_mark(painter: &egui::Painter, c: Pos2, scale: f32) {
 }
 
 fn controls(ui: &mut Ui, state: &mut AppState, m: &MatchReplay, p: &Palette) {
-    let round = &m.rounds[state.replay.round];
-    let frames = round.frames.len();
+    timeline_bar(ui, state, m, p);
+    ui.add_space(6.0);
+    let t = now_t(state, m);
+    let tl = &m.rounds[state.replay.round].timeline;
     ui.horizontal(|ui| {
         let button = |ui: &mut Ui, icon: Icon, tip: &str, enabled: bool| {
             let color = if enabled { p.text } else { p.faint };
@@ -582,9 +628,8 @@ fn controls(ui: &mut Ui, state: &mut AppState, m: &MatchReplay, p: &Palette) {
         if button(ui, Icon::PrevRound, "Previous round (↑)", r > 0) {
             jump_round(state, m, -1);
         }
-        let at_start = r == 0 && state.replay.frame == 0;
-        if button(ui, Icon::Prev, "Previous event (←)", !at_start) {
-            step(state, m, -1);
+        if button(ui, Icon::Prev, "Previous kill / event (←)", r > 0 || t > tl.start + 1.0) {
+            seek_event(state, m, -1);
         }
         let playing = state.replay.playing;
         if button(
@@ -593,51 +638,69 @@ fn controls(ui: &mut Ui, state: &mut AppState, m: &MatchReplay, p: &Palette) {
             "Play / pause (Space)",
             true,
         ) {
-            toggle_play(ui, state);
+            toggle_play(state, m);
         }
-        let at_end = r + 1 == m.rounds.len() && state.replay.frame + 1 >= frames;
-        if button(ui, Icon::Next, "Next event (→)", !at_end) {
-            step(state, m, 1);
+        let at_end = r + 1 == m.rounds.len() && t >= tl.end - 1.0;
+        if button(ui, Icon::Next, "Next kill / event (→)", !at_end) {
+            seek_event(state, m, 1);
         }
         if button(ui, Icon::NextRound, "Next round (↓)", r + 1 < m.rounds.len()) {
             jump_round(state, m, 1);
         }
         ui.add_space(6.0);
-        for speed in [1.0_f32, 2.0] {
+        for speed in [0.5_f32, 1.0, 2.0, 4.0] {
             if theme::pill(ui, &format!("{speed}×"), state.replay.speed == speed).clicked() {
                 state.replay.speed = speed;
             }
         }
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.label(
+                RichText::new(format!("{} / {}", clock(t.max(0.0) as u32), clock(tl.end as u32)))
+                    .font(theme::medium(12.0))
+                    .color(p.weak),
+            );
+        });
     });
-    ui.add_space(4.0);
-    ui.horizontal(|ui| {
-        let label = match round.frames.get(state.replay.frame) {
-            Some(f) => {
-                let kind = match f.kind {
-                    FrameKind::Kill => "Kill",
-                    FrameKind::Plant => "Spike planted",
-                    FrameKind::Defuse => "Spike defused",
-                };
-                format!(
-                    "Round {} · {kind} · event {} of {frames} · {}",
-                    state.replay.round + 1,
-                    state.replay.frame + 1,
-                    clock(f.t_ms)
-                )
+}
+
+/// Video-style scrub bar: progress, a tick per kill / plant / defuse, and a
+/// draggable playhead.
+fn timeline_bar(ui: &mut Ui, state: &mut AppState, m: &MatchReplay, p: &Palette) {
+    let round = &m.rounds[state.replay.round];
+    let tl = &round.timeline;
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::click_and_drag());
+    let track = Rect::from_center_size(rect.center(), vec2(rect.width() - 12.0, 6.0));
+    let x_of = |t: f32| track.left() + (t - tl.start) / tl.duration() * track.width();
+    let t_of = |x: f32| tl.start + ((x - track.left()) / track.width()).clamp(0.0, 1.0) * tl.duration();
+    if let Some(pos) = resp.interact_pointer_pos() {
+        state.replay.t = Some(t_of(pos.x));
+    }
+    let t = now_t(state, m);
+    let painter = ui.painter();
+    painter.rect_filled(track, CornerRadius::same(3), p.well);
+    let done = Rect::from_min_max(track.min, pos2(x_of(t), track.max.y));
+    painter.rect_filled(done, CornerRadius::same(3), p.accent.gamma_multiply(0.55));
+    let mine = my_team(state, m);
+    for (et, kind, i) in &tl.events {
+        let color = match kind {
+            FrameKind::Kill => {
+                let killer = round.frames[*i].kill.as_ref().map(|k| k.killer.as_str()).unwrap_or("");
+                team_color(m.player(killer).map(|x| x.team.as_str()).unwrap_or(""), &mine)
             }
-            None => format!("Round {} · no positional events", state.replay.round + 1),
+            FrameKind::Plant => SPIKE,
+            FrameKind::Defuse => ALLY,
         };
-        ui.label(RichText::new(label).size(12.0).color(p.weak));
-    });
-    if frames > 1 {
-        let mut f = state.replay.frame;
-        ui.spacing_mut().slider_width = ui.available_width() - 8.0;
-        if ui
-            .add(egui::Slider::new(&mut f, 0..=frames - 1).show_value(false))
-            .changed()
-        {
-            state.replay.frame = f;
-        }
+        let x = x_of(*et);
+        painter.line_segment(
+            [pos2(x, track.top() - 5.0), pos2(x, track.bottom() + 5.0)],
+            Stroke::new(2.0_f32, color),
+        );
+    }
+    let knob = pos2(x_of(t), track.center().y);
+    painter.circle_filled(knob, 7.0, p.card);
+    painter.circle_stroke(knob, 7.0, Stroke::new(2.0_f32, p.accent));
+    if let Some(h) = resp.hover_pos() {
+        resp.on_hover_text_at_pointer(clock(t_of(h.x).max(0.0) as u32));
     }
 }
 
@@ -700,8 +763,8 @@ fn feed(ui: &mut Ui, state: &mut AppState, m: &MatchReplay, cat: &Catalog, mine:
         ui.label(RichText::new("No kills this round.").color(p.weak));
     }
     let name = |puuid: &str| m.player(puuid).map(|x| x.name.clone()).unwrap_or_else(|| "?".into());
-    let current = state.replay.frame;
-    let mut jump = None;
+    let now = now_t(state, m);
+    let mut jump: Option<f32> = None;
     egui::ScrollArea::vertical()
         .max_height(ui.available_height() - 90.0)
         .auto_shrink([false, true])
@@ -722,20 +785,26 @@ fn feed(ui: &mut Ui, state: &mut AppState, m: &MatchReplay, cat: &Catalog, mine:
                 .collect();
             rows.sort_by_key(|r| r.0);
             for (t, frame, entry, spike) in rows {
-                let selected = frame == Some(current) && !round.frames.is_empty();
+                // Highlight what just happened; dim what hasn't happened yet.
+                let age = now - t as f32;
+                let selected = (0.0..KILL_FLASH).contains(&age);
+                let upcoming = age < 0.0;
                 let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::click());
+                let mut painter = ui.painter().clone();
+                if upcoming {
+                    painter.multiply_opacity(0.5);
+                }
                 if selected {
-                    ui.painter().rect_filled(rect, CornerRadius::same(8), p.selected);
+                    painter.rect_filled(rect, CornerRadius::same(8), p.selected);
                 } else if resp.hovered() && frame.is_some() {
-                    ui.painter()
-                        .rect_filled(rect, CornerRadius::same(8), p.selected.gamma_multiply(0.5));
+                    painter.rect_filled(rect, CornerRadius::same(8), p.selected.gamma_multiply(0.5));
                 }
                 let mut x = rect.left() + 8.0;
                 let y = rect.center().y;
                 let text = |x: &mut f32, s: &str, font: egui::FontId, c: Color32| {
-                    let g = ui.painter().layout_no_wrap(s.to_string(), font, c);
+                    let g = painter.layout_no_wrap(s.to_string(), font, c);
                     let w = g.size().x;
-                    ui.painter().galley(pos2(*x, y - g.size().y / 2.0), g, c);
+                    painter.galley(pos2(*x, y - g.size().y / 2.0), g, c);
                     *x += w + 6.0;
                 };
                 text(&mut x, &clock(t), theme::medium(11.0), p.faint);
@@ -757,7 +826,7 @@ fn feed(ui: &mut Ui, state: &mut AppState, m: &MatchReplay, cat: &Catalog, mine:
                         None => text(&mut x, &wname, theme::medium(10.5), p.weak),
                     }
                     if k.headshot {
-                        headshot_mark(ui.painter(), pos2(x + 4.0, y), 0.8);
+                        headshot_mark(&painter, pos2(x + 4.0, y), 0.8);
                         x += 14.0;
                     }
                     text(&mut x, &name(&k.victim), theme::semibold(12.0), team_color(&vt, mine));
@@ -771,7 +840,7 @@ fn feed(ui: &mut Ui, state: &mut AppState, m: &MatchReplay, cat: &Catalog, mine:
                         if k.headshot { " (headshot)" } else { "" }
                     );
                     if resp.on_hover_text(tip).clicked() {
-                        jump = e.frame;
+                        jump = Some(t as f32);
                     }
                 } else if let Some(f) = spike {
                     let mk = f.marker.as_ref();
@@ -784,14 +853,16 @@ fn feed(ui: &mut Ui, state: &mut AppState, m: &MatchReplay, cat: &Catalog, mine:
                     text(&mut x, &who, theme::semibold(12.0), SPIKE);
                     text(&mut x, &what, theme::medium(11.5), p.weak);
                     if resp.clicked() {
-                        jump = frame;
+                        jump = Some(t as f32);
                     }
                 }
             }
         });
-    if let Some(f) = jump {
-        state.replay.frame = f;
-        state.replay.playing = false;
+    // Clicking a line plays the lead-up to that moment.
+    if let Some(t) = jump {
+        let tl = &round.timeline;
+        state.replay.t = Some((t - 2000.0).max(tl.start));
+        state.replay.playing = true;
     }
     ui.add_space(10.0);
     legend(ui, p);
@@ -818,7 +889,7 @@ fn legend(ui: &mut Ui, p: &Palette) {
         ui.label(RichText::new("x = dead · white ring = killer").size(11.0).color(p.weak));
     });
     ui.label(
-        RichText::new("←/→ events · ↑/↓ rounds · Space play")
+        RichText::new("Space play · ←/→ kills · ↑/↓ rounds · drag the timeline to scrub")
             .size(10.5)
             .color(p.faint),
     );

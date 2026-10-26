@@ -13,9 +13,10 @@ A lightweight, native desktop companion for VALORANT, written in Rust with
 - **Match detail:** both scoreboards (ACS, K/D, ADR, HS%, KAST, first kills/deaths,
   multi-kills, plants/defuses) and a round-by-round strip
 - **Lookup:** another player's rank and recent matches
-- **2D replay:** a top-down view of any match, stepping through every kill, plant and defuse
-  on the map's minimap (positions and facing of all ten players at each event), with round
-  chips, play/pause and a kill feed. Open it from the map icon on a match row or the match screen
+- **2D replay:** watch any match top-down on the map's minimap, played like a video: all ten
+  players move, kills flash in, the spike goes down and gets defused, with a scrubbable timeline,
+  0.5×–4× speed, round chips and a live kill feed. Open it from the **Replays** tab, the
+  **Replay** button on any match row, or the match screen
 - **Crosshairs:** paste or build a crosshair code, preview it, save presets, copy
 - **Social:** your Riot friends list with live status (in queue, agent select, in a match
   with the score, other Riot games), unread badges and whispers, all through the Riot
@@ -29,7 +30,7 @@ A lightweight, native desktop companion for VALORANT, written in Rust with
 More: [home, lower half](docs/screenshots/home-bottom.png) · [dark mode](docs/screenshots/home-dark.png) ·
 [agents](docs/screenshots/agents.png) · [live lobby](docs/screenshots/live.png) ·
 [match detail](docs/screenshots/match-detail.png) · [startup check](docs/screenshots/startup.png) ·
-[friends & whispers](docs/screenshots/friends.png) · [2D replay](docs/screenshots/replay.png).
+[friends & whispers](docs/screenshots/friends.png) · [2D replay](docs/screenshots/replay.png) · [Replays tab](docs/screenshots/replays.png).
 Screenshots are from `--demo` mode with synthetic data and no artwork; in normal use your
 player card, agent, map and rank art load from valorant-api.com.
 
@@ -131,8 +132,10 @@ Settings never contain credentials. Override with `TRACKED_CONFIG_DIR` / `TRACKE
 
 The replay is rebuilt from the match-details data that every tracker uses
 (`pd.<shard>/match-details/v1/matches/<id>`). Riot only records where players stood **at
-each kill, plant and defuse**, so the replay is a sequence of snapshots per round, not
-continuous movement and not VALORANT's own replay files (third parties can't access those).
+each kill, plant and defuse**. Playback is smooth: between those moments each player glides
+along a curve through their recorded positions. That in-between movement is an estimate
+for viewing, not tracked data; at every kill, plant and defuse the positions are exact. It
+is not VALORANT's own replay files (third parties can't access those).
 Map images and calibration come from valorant-api.com; match data is cached on disk after
 the first view. Deathmatch-style modes have no replay. To check it against your own matches:
 

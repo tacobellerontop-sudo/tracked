@@ -25,6 +25,8 @@ pub enum Screen {
     Home,
     Live,
     Matches,
+    /// Pick a match to watch as a 2D replay.
+    Replays,
     Agents,
     Lookup,
     Crosshairs,
@@ -44,12 +46,12 @@ pub struct ReplayView {
     /// `None` while loading.
     pub data: Option<Result<Arc<crate::replay::MatchReplay>, String>>,
     pub round: usize,
-    pub frame: usize,
+    /// Playback clock within the round (ms since round start); `None` means
+    /// "start of the round".
+    pub t: Option<f32>,
     pub playing: bool,
-    /// Frames per second while playing.
+    /// Playback speed (1.0 = real time).
     pub speed: f32,
-    /// `ui.input().time` at which playback advances next.
-    pub next_step_at: f64,
     /// Whose team counts as "yours" for colours.
     pub perspective: Option<Puuid>,
     pub return_to: Option<Screen>,

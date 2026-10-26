@@ -114,7 +114,7 @@ pub fn match_table(
         .column(Column::auto().at_least(50.0))
         .column(Column::auto().at_least(56.0))
         .columns(Column::auto().at_least(56.0), 4)
-        .column(Column::exact(36.0))
+        .column(Column::exact(70.0))
         .header(22.0, |mut h| {
             for t in [
                 "", "Date", "Map", "Mode", "Result", "Score", "K/D/A", "ADR", "HS%", "ACS", "",
@@ -176,13 +176,14 @@ pub fn match_table(
                     }
                     let mut replay = false;
                     row.col(|ui| {
-                        let color = super::theme::pal(ui.ctx()).weak;
-                        let glyph = RichText::new(super::icons::Icon::Map.glyph())
-                            .font(super::theme::icon_font(16.0))
-                            .color(color);
+                        let p = super::theme::pal(ui.ctx());
                         replay = ui
-                            .add(egui::Button::new(glyph).frame(false))
-                            .on_hover_text("2D replay")
+                            .add(
+                                egui::Button::new(RichText::new("Replay").size(11.0).color(p.accent))
+                                    .corner_radius(egui::CornerRadius::same(10))
+                                    .min_size(egui::vec2(58.0, 22.0)),
+                            )
+                            .on_hover_text("Watch this match as a 2D replay")
                             .clicked();
                     });
                     if replay {
