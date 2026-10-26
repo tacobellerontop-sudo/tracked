@@ -83,8 +83,8 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
     });
     ui.add_space(8.0);
     ui.label(RichText::new("Recent matches").strong());
-    if let Some(id) = career::match_table(ui, state, &card.puuid, &card.matches, "lookup") {
-        state.open_match(id, Some(card.puuid.clone()), intents);
+    if let Some(action) = career::match_table(ui, state, &card.puuid, &card.matches, "lookup") {
+        action.apply(state, Some(card.puuid.clone()), intents);
     }
 }
 

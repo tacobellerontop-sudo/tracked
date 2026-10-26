@@ -165,6 +165,9 @@ other. `tests/social_e2e.rs` runs the real worker against it in-process.
 | `riot/pd.rs` | MMR, competitive updates, history, details, rank snapshot, rank probe |
 | `riot/glz.rs` | party / pregame / core-game → `LiveMatch` |
 | `riot/presence.rs` | presence blob decode |
+| `replay/mod.rs` | 2D replay model and `from_raw` / `build_round` (frames per round, dead set, feed) |
+| `replay/fetch.rs` | match-details serde models (valapidocs field names) + fetch |
+| `replay/calibrate.rs` | `MapCal`, `world_to_norm` (note the x/y swap), facing vectors |
 | `riot/chat.rs` | local chat API: friends, requests, conversations, history, send; friend status decode |
 | `riot/names.rs` | batched PUUID → Riot ID with cache |
 | `riot/match_stats.rs` | raw match → `MatchDetail` with derived stats (KAST, trades, clutches…) |

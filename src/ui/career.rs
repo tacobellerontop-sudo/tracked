@@ -69,8 +69,24 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
     ui.separator();
     ui.label(RichText::new("Recent matches").strong());
 
-    if let Some(id) = match_table(ui, state, &career.puuid, &career.matches, "history") {
-        state.open_match(id, None, intents);
+    if let Some(action) = match_table(ui, state, &career.puuid, &career.matches, "history") {
+        action.apply(state, None, intents);
+    }
+}
+
+/// What a click in the match table asked for.
+pub enum RowAction {
+    Open(MatchId),
+    Replay(MatchId),
+}
+
+impl RowAction {
+    /// Carry the action out, from `perspective`'s point of view (default: you).
+    pub fn apply(self, state: &mut AppState, perspective: Option<String>, intents: &IntentTx) {
+        match self {
+            RowAction::Open(id) => state.open_match(id, perspective, intents),
+            RowAction::Replay(id) => state.open_replay(id, perspective, intents),
+        }
     }
 }
 
@@ -81,7 +97,7 @@ pub fn match_table(
     puuid: &str,
     entries: &[MatchHistoryEntry],
     salt: &str,
-) -> Option<MatchId> {
+) -> Option<RowAction> {
     let cat = state.catalog.clone();
     let mut clicked = None;
     // Selectable labels would swallow the click meant for the row.
@@ -98,9 +114,10 @@ pub fn match_table(
         .column(Column::auto().at_least(50.0))
         .column(Column::auto().at_least(56.0))
         .columns(Column::auto().at_least(56.0), 4)
+        .column(Column::exact(36.0))
         .header(22.0, |mut h| {
             for t in [
-                "", "Date", "Map", "Mode", "Result", "Score", "K/D/A", "ADR", "HS%", "ACS",
+                "", "Date", "Map", "Mode", "Result", "Score", "K/D/A", "ADR", "HS%", "ACS", "",
             ] {
                 h.col(|ui| {
                     ui.strong(t);
@@ -124,7 +141,7 @@ pub fn match_table(
                         row.col(|ui| {
                             ui.weak("loading…");
                         });
-                        for _ in 0..7 {
+                        for _ in 0..8 {
                             row.col(|_| {});
                         }
                         return;
@@ -157,8 +174,21 @@ pub fn match_table(
                             ui.label(c);
                         });
                     }
-                    if row.response().clicked() {
-                        clicked = Some(entry.match_id.clone());
+                    let mut replay = false;
+                    row.col(|ui| {
+                        let color = super::theme::pal(ui.ctx()).weak;
+                        let glyph = RichText::new(super::icons::Icon::Map.glyph())
+                            .font(super::theme::icon_font(16.0))
+                            .color(color);
+                        replay = ui
+                            .add(egui::Button::new(glyph).frame(false))
+                            .on_hover_text("2D replay")
+                            .clicked();
+                    });
+                    if replay {
+                        clicked = Some(RowAction::Replay(entry.match_id.clone()));
+                    } else if row.response().clicked() {
+                        clicked = Some(RowAction::Open(entry.match_id.clone()));
                     }
                 });
             }

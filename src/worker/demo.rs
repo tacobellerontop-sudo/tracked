@@ -16,6 +16,14 @@ use crate::riot::pd::{PlayerProbe, RankSnapshot};
 use crate::riot::presence::{GamePresence, LoopState};
 use crate::riot::RiotId;
 
+/// Demo maps have no artwork; this maps world ±6400 onto the minimap square.
+const DEMO_CAL: crate::replay::calibrate::MapCal = crate::replay::calibrate::MapCal {
+    x_multiplier: 7e-5,
+    y_multiplier: -7e-5,
+    x_scalar_to_add: 0.5,
+    y_scalar_to_add: 0.5,
+};
+
 pub const SELF_PUUID: &str = "00000000-0000-4000-8000-000000000000";
 const AGENTS: &[&str] = &[
     "Jett", "Sova", "Omen", "Killjoy", "Raze", "Skye", "Viper", "Reyna", "Cypher", "Breach",
@@ -79,6 +87,8 @@ pub fn catalog() -> Catalog {
                 name: m.to_string(),
                 icon: String::new(),
                 splash: String::new(),
+                minimap: String::new(),
+                cal: Some(DEMO_CAL),
             },
         );
     }
@@ -93,6 +103,15 @@ pub fn catalog() -> Catalog {
             );
         }
     }
+    for (id, name) in DEMO_WEAPONS {
+        c.weapons.insert(
+            id.to_string(),
+            crate::content::valorant_api::Weapon {
+                name: name.to_string(),
+                icon: String::new(),
+            },
+        );
+    }
     c.tiers.insert(
         27,
         Tier {
@@ -106,6 +125,32 @@ pub fn catalog() -> Catalog {
 /// A plausible 5v5 competitive match built from raw kills/damage, so the
 /// demo also exercises the real stat normalization.
 pub fn synthetic_match(seed: u64) -> MatchDetail {
+    let raw: RawMatch = serde_json::from_value(synthetic_raw(seed)).expect("demo match");
+    normalize(&raw)
+}
+
+/// The same match as a 2D replay, through the real replay parser.
+pub fn synthetic_replay(seed: u64) -> crate::replay::MatchReplay {
+    let raw: crate::replay::fetch::MatchDetailsRaw = serde_json::from_value(synthetic_raw(seed)).expect("demo replay");
+    crate::replay::from_raw(&raw)
+}
+
+/// Demo match ids are `d<seed:07>-0000-4000-8000-000000000000`.
+pub fn seed_of(match_id: &str) -> Option<u64> {
+    match_id.get(1..8)?.parse().ok()
+}
+
+const DEMO_WEAPONS: &[(&str, &str)] = &[
+    ("9c82e19d-4575-0200-1a81-3eacf00cf872", "Vandal"),
+    ("ee8e8d15-496b-07ac-e5f6-8fae5d4c7b1a", "Phantom"),
+    ("a03b24d3-4319-996d-0f8c-94bbfba1dfc7", "Operator"),
+    ("e336c6b8-418d-9340-d77f-7a9e4cfe0702", "Sheriff"),
+    ("462080d1-4035-2937-7c09-27aa2a5c27a7", "Spectre"),
+];
+
+/// Raw match-details JSON (valapidocs shape), including positions at each
+/// kill, plant and defuse from a crude movement simulation.
+fn synthetic_raw(seed: u64) -> serde_json::Value {
     let mut rng = Lcg(seed);
     let teams = ["Red", "Blue"];
     let players: Vec<_> = (0..10)
@@ -120,17 +165,84 @@ pub fn synthetic_match(seed: u64) -> MatchDetail {
     let mut score = [0u32; 10];
     let mut kda = [(0u32, 0u32, 0u32); 10];
     let mut n = 0;
+    // World positions: attackers spawn at x ≈ -5200, defenders at x ≈ +4600;
+    // sites sit at y = ∓3600 (A / B).
+    let sites = [("A", (1800.0_f32, -3600.0_f32)), ("B", (1800.0, 3600.0))];
+    let jitter = |rng: &mut Lcg, r: f32| (rng.next(1000) as f32 / 1000.0 - 0.5) * 2.0 * r;
     while red < 13 && blue < 13 {
+        let attacker = if crate::replay::attackers_by_rule(n) == "Red" {
+            0
+        } else {
+            1
+        };
+        let (site_name, site) = sites[rng.next(2) as usize];
+        let mut pos = [(0.0_f32, 0.0_f32); 10];
+        for (i, p) in pos.iter_mut().enumerate() {
+            let side = if i / 5 == attacker { -5200.0 } else { 4600.0 };
+            *p = (
+                side + jitter(&mut rng, 300.0),
+                (i % 5) as f32 * 1200.0 - 2400.0 + jitter(&mut rng, 300.0),
+            );
+        }
         let mut alive: Vec<Vec<usize>> = vec![(0..5).collect(), (5..10).collect()];
         let mut stats: Vec<serde_json::Value> = Vec::new();
-        let mut t = 5000;
+        let mut t: u64 = 5000;
+        let mut plant: Option<(u64, usize, serde_json::Value)> = None;
+        let snapshot = |pos: &[(f32, f32); 10], alive: &[Vec<usize>]| -> Vec<serde_json::Value> {
+            alive
+                .iter()
+                .enumerate()
+                .flat_map(|(side, list)| list.iter().map(move |&i| (side, i)))
+                .map(|(side, i)| {
+                    // Face the nearest living enemy.
+                    let (x, y) = pos[i];
+                    let target = alive[1 - side]
+                        .iter()
+                        .map(|&e| pos[e])
+                        .min_by(|a, b| {
+                            let da = (a.0 - x).powi(2) + (a.1 - y).powi(2);
+                            let db = (b.0 - x).powi(2) + (b.1 - y).powi(2);
+                            da.total_cmp(&db)
+                        })
+                        .unwrap_or((x + 1.0, y));
+                    let theta = (target.1 - y).atan2(target.0 - x);
+                    json!({ "subject": puuid(i), "viewRadians": theta, "location": { "x": x, "y": y } })
+                })
+                .collect()
+        };
         while !alive[0].is_empty() && !alive[1].is_empty() {
+            // Everyone moves: attackers toward the site, defenders to hold spots.
+            for (side, list) in alive.iter().enumerate() {
+                for &i in list {
+                    // Each player keeps their own lane/offset around the target.
+                    let lane = ((i % 5) as f32 - 2.0) * 700.0;
+                    let target = if side == attacker || plant.is_some() {
+                        (site.0 - 400.0 + (i % 3) as f32 * 400.0, site.1 + lane)
+                    } else {
+                        let hold = sites[i % 2].1;
+                        (hold.0 + 900.0 + (i % 3) as f32 * 500.0, hold.1 + lane * 0.6)
+                    };
+                    let (x, y) = pos[i];
+                    pos[i] = (
+                        x + (target.0 - x) * 0.22 + jitter(&mut rng, 450.0),
+                        y + (target.1 - y) * 0.22 + jitter(&mut rng, 450.0),
+                    );
+                }
+            }
+            t += 1000 + rng.next(9000);
+            if plant.is_none() && t > 25_000 && !alive[attacker].is_empty() && rng.next(10) < 5 {
+                let planter = alive[attacker][rng.next(alive[attacker].len() as u64) as usize];
+                pos[planter] = (site.0 + jitter(&mut rng, 150.0), site.1 + jitter(&mut rng, 150.0));
+                plant = Some((t, planter, json!(snapshot(&pos, &alive))));
+                t += 2000;
+                continue;
+            }
             // Slight edge to the red team so the demo user wins more often.
             let killer_side = if rng.next(100) < 53 { 0 } else { 1 };
             let killer = alive[killer_side][rng.next(alive[killer_side].len() as u64) as usize];
+            let locations = snapshot(&pos, &alive);
             let vi = rng.next(alive[1 - killer_side].len() as u64) as usize;
             let victim = alive[1 - killer_side].remove(vi);
-            t += 1000 + rng.next(9000);
             let hs = rng.next(3) as u32;
             let assist: Vec<String> = alive[killer_side]
                 .iter()
@@ -144,8 +256,16 @@ pub fn synthetic_match(seed: u64) -> MatchDetail {
             kda[killer].0 += 1;
             kda[victim].1 += 1;
             score[killer] += 150 + 50 * hs;
+            let finishing = if rng.next(12) == 0 {
+                json!({ "damageType": "Ability", "damageItem": "Ultimate", "isSecondaryFireMode": false })
+            } else {
+                let w = DEMO_WEAPONS[rng.next(DEMO_WEAPONS.len() as u64) as usize].0;
+                json!({ "damageType": "Weapon", "damageItem": w.to_uppercase(), "isSecondaryFireMode": false })
+            };
             stats.push(json!({ "subject": puuid(killer),
-                "kills": [{ "roundTime": t, "killer": puuid(killer), "victim": puuid(victim), "assistants": assist }],
+                "kills": [{ "gameTime": n as u64 * 100_000 + t, "roundTime": t, "killer": puuid(killer), "victim": puuid(victim),
+                            "victimLocation": { "x": pos[victim].0, "y": pos[victim].1 },
+                            "assistants": assist, "playerLocations": locations, "finishingDamage": finishing }],
                 "damage": [{ "receiver": puuid(victim), "damage": 100 + rng.next(60), "headshots": hs, "bodyshots": 2 - hs.min(2), "legshots": rng.next(2) }] }));
         }
         let winner = if alive[0].is_empty() { 1 } else { 0 };
@@ -154,10 +274,28 @@ pub fn synthetic_match(seed: u64) -> MatchDetail {
         } else {
             blue += 1
         }
-        let attacker = if n < 12 { 0 } else { 1 };
-        rounds.push(json!({ "roundNum": n, "winningTeam": teams[winner],
+        let mut round = json!({ "roundNum": n, "winningTeam": teams[winner],
             "winningTeamRole": if winner == attacker { "Attacker" } else { "Defender" },
-            "roundResult": "Eliminated", "playerStats": stats }));
+            "roundResult": "Eliminated", "playerStats": stats });
+        if let Some((pt, planter, locs)) = plant {
+            round["bombPlanter"] = json!(puuid(planter));
+            round["plantRoundTime"] = json!(pt);
+            round["plantSite"] = json!(site_name);
+            round["plantLocation"] = json!({ "x": pos[planter].0.min(site.0 + 150.0), "y": site.1 });
+            round["plantPlayerLocations"] = locs;
+            if winner != attacker {
+                let defuser = alive[winner][rng.next(alive[winner].len() as u64) as usize];
+                pos[defuser] = (site.0 + 60.0, site.1 + 40.0);
+                round["bombDefuser"] = json!(puuid(defuser));
+                round["defuseRoundTime"] = json!(t + 6000);
+                round["defuseLocation"] = json!({ "x": site.0 + 60.0, "y": site.1 + 40.0 });
+                round["defusePlayerLocations"] = json!(snapshot(&pos, &alive));
+                round["roundResult"] = json!("Bomb defused");
+            } else {
+                round["roundResult"] = json!("Bomb detonated");
+            }
+        }
+        rounds.push(round);
         n += 1;
     }
     let players: Vec<_> = players
@@ -168,17 +306,16 @@ pub fn synthetic_match(seed: u64) -> MatchDetail {
             p
         })
         .collect();
-    let raw: RawMatch = serde_json::from_value(json!({
+    json!({
         "matchInfo": { "matchId": format!("d{seed:07}-0000-4000-8000-000000000000"), "mapId": format!("/Game/Maps/{0}/{0}", MAPS[seed as usize % MAPS.len()]),
-                       "queueID": "competitive", "gameLengthMillis": 1_500_000 + seed * 37_000, "gameStartMillis": demo_now_ms() - 2 * 3_600_000 - (seed as i64 - 1) * 26 * 3_600_000,
+                       "queueID": "competitive", "gameMode": "/Game/GameModes/Bomb/BombGameMode.BombGameMode_C",
+                       "gameLengthMillis": 1_500_000 + seed * 37_000, "gameStartMillis": demo_now_ms() - 2 * 3_600_000 - (seed as i64 - 1) * 26 * 3_600_000,
                        "isRanked": true, "isCompleted": true },
         "players": players,
         "teams": [{ "teamId": "Red", "won": red > blue, "roundsWon": red, "roundsPlayed": n },
                   { "teamId": "Blue", "won": blue > red, "roundsWon": blue, "roundsPlayed": n }],
         "roundResults": rounds
-    }))
-    .expect("demo match");
-    normalize(&raw)
+    })
 }
 
 /// Demo player 7 has streamer mode on.
@@ -395,6 +532,13 @@ pub async fn run(mut intents: IntentRx, ctx: Arc<Ctx>) {
                 }));
             }
             Intent::SaveSettings(s) => tasks::save_settings(ctx.clone(), s).await,
+            Intent::OpenReplay(id) => {
+                let result = match seed_of(&id) {
+                    Some(seed) => Ok(Arc::new(synthetic_replay(seed))),
+                    None => Err(crate::error::UserFacingError("Unknown demo match".into())),
+                };
+                ctx.sink.send(Update::Replay { match_id: id, result });
+            }
             Intent::RiotSocialRefresh => social::refresh(&ctx),
             Intent::RiotChatOpen(cid) => social::open(&ctx, &cid),
             Intent::RiotChatSend { cid, text } => social::send(&ctx, cid, text),

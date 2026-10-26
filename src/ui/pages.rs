@@ -70,8 +70,8 @@ pub fn matches(ui: &mut Ui, state: &mut AppState, intents: &IntentTx) {
             });
         });
         ui.add_space(8.0);
-        if let Some(id) = super::career::match_table(ui, state, &career.puuid, &entries, "all-matches") {
-            state.open_match(id, None, intents);
+        if let Some(action) = super::career::match_table(ui, state, &career.puuid, &entries, "all-matches") {
+            action.apply(state, None, intents);
         }
     });
 }

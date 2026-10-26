@@ -26,6 +26,14 @@ pub enum Icon {
     UserPlus,
     Users,
     Chat,
+    Play,
+    Pause,
+    Prev,
+    Next,
+    PrevRound,
+    NextRound,
+    Map,
+    Back,
 }
 
 impl Icon {
@@ -55,6 +63,14 @@ impl Icon {
             Icon::UserPlus => ph::USER_PLUS,
             Icon::Users => ph::USERS,
             Icon::Chat => ph::CHAT_CIRCLE_DOTS,
+            Icon::Play => ph::PLAY,
+            Icon::Pause => ph::PAUSE,
+            Icon::Prev => ph::CARET_LEFT,
+            Icon::Next => ph::CARET_RIGHT,
+            Icon::PrevRound => ph::SKIP_BACK,
+            Icon::NextRound => ph::SKIP_FORWARD,
+            Icon::Map => ph::MAP_TRIFOLD,
+            Icon::Back => ph::ARROW_LEFT,
         }
     }
 }

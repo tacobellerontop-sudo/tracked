@@ -10,6 +10,7 @@ pub mod live;
 pub mod lookup;
 pub mod match_detail;
 pub mod pages;
+pub mod replay;
 pub mod settings;
 pub mod social;
 pub mod theme;
@@ -98,6 +99,11 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState, intents: &IntentTx) {
                 social_screen(ui, state, intents);
                 return;
             }
+            // The replay sizes its map to the window, so it has no outer scroll.
+            if state.screen == Screen::Replay {
+                theme::card(ui, None, |ui| replay::ui(ui, state, intents));
+                return;
+            }
             // Page fade-in when the screen changes.
             let now = ui.input(|i| i.time);
             if state.last_screen != Some(state.screen) {
@@ -126,7 +132,7 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState, intents: &IntentTx) {
                     Screen::MatchDetail => theme::card(ui, None, |ui| match_detail::ui(ui, state, intents)),
                     Screen::Settings => theme::card(ui, None, |ui| settings::ui(ui, state, intents)),
                     Screen::Connection => theme::card(ui, None, |ui| connection::ui(ui, state, intents)),
-                    Screen::Social => {}
+                    Screen::Social | Screen::Replay => {}
                 }
                 ui.add_space(24.0);
             });
@@ -154,7 +160,7 @@ fn sidebar(ui: &mut egui::Ui, state: &mut AppState, visible: &dyn Fn(&Screen) ->
     let mut selected_rect = None;
     let unread = state.riot_social.unread_total();
     for (screen, label, icon, _) in NAV.iter().filter(|n| visible(&n.0)) {
-        let selected = state.screen == *screen || (state.screen == Screen::MatchDetail && state.return_to == *screen);
+        let selected = nav_owner(state) == *screen;
         let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
         if selected {
             selected_rect = Some(rect);
@@ -364,6 +370,7 @@ fn top_bar(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
                 Screen::Settings => "Settings",
                 Screen::Connection => "Connection",
                 Screen::MatchDetail => "Match",
+                Screen::Replay => "Replay",
             };
             ui.label(RichText::new(title).size(12.0).color(p.faint));
         });
@@ -499,4 +506,17 @@ fn social_screen(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
         SocialTab::Friends => theme::card(ui, None, |ui| friends::ui(ui, state, intents)),
         SocialTab::Tracked => theme::card(ui, None, |ui| social::ui(ui, state, intents)),
     }
+}
+
+/// The sidebar item a screen belongs to (match detail and replay highlight
+/// the page they were opened from).
+fn nav_owner(state: &AppState) -> Screen {
+    let mut screen = state.screen;
+    if screen == Screen::Replay {
+        screen = state.replay.return_to.unwrap_or(Screen::Matches);
+    }
+    if screen == Screen::MatchDetail {
+        screen = state.return_to;
+    }
+    screen
 }

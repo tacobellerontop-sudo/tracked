@@ -26,6 +26,8 @@ pub enum Intent {
     RefreshLiveMatch,
     RefreshCareer,
     LoadMatchDetails(MatchId),
+    /// Fetch match-details and build the 2D replay.
+    OpenReplay(MatchId),
     LookupPlayer {
         name: String,
         tag: String,
@@ -228,6 +230,10 @@ pub enum Update {
     },
     Career(CareerSummary),
     MatchDetails(MatchId, Arc<MatchDetail>),
+    Replay {
+        match_id: MatchId,
+        result: Result<Arc<crate::replay::MatchReplay>, UserFacingError>,
+    },
     Error(UserFacingError),
 }
 

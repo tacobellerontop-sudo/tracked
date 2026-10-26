@@ -1,0 +1,132 @@
+{
+  "matchInfo": {
+    "matchId": "11111111-2222-4333-8444-555555555555",
+    "mapId": "/Game/Maps/Ascent/Ascent",
+    "gamePodId": "aresriot.aws-rclusterprod-euc1-1.eu-gp-frankfurt-1",
+    "gameLoopZone": "",
+    "gameServerAddress": "",
+    "gameVersion": "release-09.08-shipping-15-2858545",
+    "gameLengthMillis": 2004011,
+    "gameStartMillis": 1730000000000,
+    "provisioningFlowID": "Matchmaking",
+    "isCompleted": true,
+    "customGameName": "",
+    "forceRefreshOnClients": false,
+    "queueID": "competitive",
+    "gameMode": "/Game/GameModes/Bomb/BombGameMode.BombGameMode_C",
+    "isRanked": true,
+    "isMatchSampled": false,
+    "seasonId": "52ca6698-41c1-e7de-4008-8994d2221209",
+    "completionState": "Completed",
+    "platformType": "PC",
+    "premierMatchInfo": {},
+    "partyRRPenalties": {},
+    "shouldMatchDisablePenalties": false
+  },
+  "players": [
+    { "subject": "aaaaaaaa-0000-4000-8000-000000000001", "gameName": "Alpha", "tagLine": "EUW", "teamId": "Red",
+      "partyId": "p1", "characterId": "ADD6443A-41BD-E414-F6AD-E58D267F4E95", "stats": { "score": 900, "roundsPlayed": 2, "kills": 2, "deaths": 0, "assists": 0, "playtimeMillis": 1, "abilityCasts": null },
+      "roundDamage": [], "competitiveTier": 14, "isObserver": false, "playerCard": "x", "playerTitle": "y", "accountLevel": 120,
+      "sessionPlaytimeMinutes": 30, "behaviorFactors": { "afkRounds": 0 }, "newPlayerExperienceDetails": {} },
+    { "subject": "aaaaaaaa-0000-4000-8000-000000000002", "gameName": "Bravo", "tagLine": "1", "teamId": "Red",
+      "partyId": "p1", "characterId": "a3bfb853-43b2-7238-a4f1-ad90e9e46bcc", "competitiveTier": 13 },
+    { "subject": "bbbbbbbb-0000-4000-8000-000000000003", "gameName": "Charlie", "tagLine": "2", "teamId": "Blue",
+      "partyId": "p2", "characterId": "8e253930-4c05-31dd-1b6c-968525494517", "competitiveTier": 15 },
+    { "subject": "bbbbbbbb-0000-4000-8000-000000000004", "gameName": "Delta", "tagLine": "3", "teamId": "Blue",
+      "partyId": "p3", "characterId": "1e58de9c-4950-5125-93e9-a0aee9f98746", "competitiveTier": 12 }
+  ],
+  "bots": [],
+  "coaches": [],
+  "teams": [
+    { "teamId": "Red", "won": true, "roundsPlayed": 2, "roundsWon": 1, "numPoints": 1 },
+    { "teamId": "Blue", "won": false, "roundsPlayed": 2, "roundsWon": 1, "numPoints": 1 }
+  ],
+  "roundResults": [
+    {
+      "roundNum": 0,
+      "roundResult": "Bomb detonated",
+      "roundCeremony": "CeremonyDefault",
+      "winningTeam": "Red",
+      "bombPlanter": "aaaaaaaa-0000-4000-8000-000000000002",
+      "plantRoundTime": 41000,
+      "plantPlayerLocations": [
+        { "subject": "aaaaaaaa-0000-4000-8000-000000000001", "viewRadians": 1.5, "location": { "x": 6100, "y": -7400 } },
+        { "subject": "aaaaaaaa-0000-4000-8000-000000000002", "viewRadians": 3.1, "location": { "x": 6550, "y": -7000 } },
+        { "subject": "bbbbbbbb-0000-4000-8000-000000000004", "viewRadians": 0.2, "location": { "x": 2500, "y": -3000 } }
+      ],
+      "plantLocation": { "x": 6600, "y": -7060 },
+      "plantSite": "A",
+      "defuseRoundTime": 0,
+      "defusePlayerLocations": null,
+      "defuseLocation": { "x": 0, "y": 0 },
+      "playerStats": [
+        {
+          "subject": "aaaaaaaa-0000-4000-8000-000000000001",
+          "kills": [
+            {
+              "gameTime": 160200, "roundTime": 62000,
+              "killer": "aaaaaaaa-0000-4000-8000-000000000001", "victim": "bbbbbbbb-0000-4000-8000-000000000004",
+              "victimLocation": { "x": 4100, "y": -5000 }, "assistants": [],
+              "playerLocations": [
+                { "subject": "aaaaaaaa-0000-4000-8000-000000000001", "viewRadians": 2.0, "location": { "x": 6000, "y": -6900 } },
+                { "subject": "aaaaaaaa-0000-4000-8000-000000000002", "viewRadians": 2.5, "location": { "x": 6400, "y": -7100 } }
+              ],
+              "finishingDamage": { "damageType": "Weapon", "damageItem": "9C82E19D-4575-0200-1A81-3EACF00CF872", "isSecondaryFireMode": false }
+            },
+            {
+              "gameTime": 120200, "roundTime": 22000,
+              "killer": "aaaaaaaa-0000-4000-8000-000000000001", "victim": "bbbbbbbb-0000-4000-8000-000000000003",
+              "victimLocation": { "x": 3000, "y": -6000 }, "assistants": ["aaaaaaaa-0000-4000-8000-000000000002"],
+              "playerLocations": [
+                { "subject": "aaaaaaaa-0000-4000-8000-000000000001", "viewRadians": 0.5, "location": { "x": 2000, "y": -6500 } },
+                { "subject": "aaaaaaaa-0000-4000-8000-000000000002", "viewRadians": 0.7, "location": { "x": 1800, "y": -6900 } },
+                { "subject": "bbbbbbbb-0000-4000-8000-000000000004", "viewRadians": 3.9, "location": { "x": 3500, "y": -3500 } }
+              ],
+              "finishingDamage": { "damageType": "Weapon", "damageItem": "9C82E19D-4575-0200-1A81-3EACF00CF872", "isSecondaryFireMode": false }
+            }
+          ],
+          "damage": [
+            { "receiver": "bbbbbbbb-0000-4000-8000-000000000003", "damage": 160, "legshots": 0, "bodyshots": 0, "headshots": 1 },
+            { "receiver": "bbbbbbbb-0000-4000-8000-000000000004", "damage": 150, "legshots": 0, "bodyshots": 3, "headshots": 1 }
+          ],
+          "score": 520,
+          "economy": { "loadoutValue": 3900, "weapon": "9C82E19D-4575-0200-1A81-3EACF00CF872", "armor": "822BCAB2-40A2-324E-C137-E09195AD7692", "remaining": 300, "spent": 3900 },
+          "ability": { "grenadeEffects": null, "ability1Effects": null, "ability2Effects": null, "ultimateEffects": null },
+          "wasAfk": false, "wasPenalized": false, "stayedInSpawn": false
+        },
+        {
+          "subject": "bbbbbbbb-0000-4000-8000-000000000004",
+          "kills": [
+            {
+              "gameTime": 145000, "roundTime": 47000,
+              "killer": "bbbbbbbb-0000-4000-8000-000000000004", "victim": "aaaaaaaa-0000-4000-8000-000000000002",
+              "victimLocation": { "x": 6500, "y": -7050 }, "assistants": [],
+              "playerLocations": [],
+              "finishingDamage": { "damageType": "Ability", "damageItem": "Ultimate", "isSecondaryFireMode": false }
+            }
+          ],
+          "damage": [],
+          "score": 200
+        }
+      ],
+      "roundResultCode": "Detonate",
+      "playerEconomies": [],
+      "playerScores": []
+    },
+    {
+      "roundNum": 1,
+      "roundResult": "Round timer expired",
+      "roundCeremony": "CeremonyDefault",
+      "winningTeam": "Blue",
+      "plantRoundTime": 0,
+      "plantPlayerLocations": null,
+      "plantLocation": { "x": 0, "y": 0 },
+      "plantSite": "",
+      "playerStats": [
+        { "subject": "aaaaaaaa-0000-4000-8000-000000000001", "kills": [], "damage": [], "score": 0 }
+      ],
+      "roundResultCode": ""
+    }
+  ],
+  "kills": []
+}

@@ -24,7 +24,7 @@ use tokio::time::Instant;
 
 use crate::config::Settings;
 use crate::diagnostics::{ConnectionReport, Step, StepState};
-use crate::error::ApiError;
+use crate::error::{ApiError, UserFacingError};
 use crate::ipc::{ClientStatus, Intent, IntentRx, Update, UpdateSink};
 use crate::riot::presence::{GamePresence, LoopState};
 use crate::riot::{self, lockfile, pd, GameState, RiotError, WatchEvent};
@@ -158,6 +158,14 @@ impl Supervisor {
             }
             Intent::RefreshCareer => {
                 tokio::spawn(tasks::refresh_career(ctx));
+            }
+            Intent::OpenReplay(id) => {
+                tokio::spawn(async move {
+                    let result = tasks::load_replay(&ctx, &id)
+                        .await
+                        .map_err(|e| UserFacingError::from(&e));
+                    ctx.sink.send(Update::Replay { match_id: id, result });
+                });
             }
             Intent::LoadMatchDetails(id) => {
                 tokio::spawn(async move {

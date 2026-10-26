@@ -10,13 +10,30 @@ use crate::content::Catalog;
 use crate::ipc::IntentTx;
 use crate::riot::models::{MatchDetail, PlayerMatch};
 
-pub fn ui(ui: &mut egui::Ui, state: &mut AppState, _intents: &IntentTx) {
-    if ui.button("Back").clicked() {
-        state.screen = if state.return_to == Screen::MatchDetail {
-            Screen::Home
-        } else {
-            state.return_to
-        };
+pub fn ui(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
+    let mut open_replay = false;
+    ui.horizontal(|ui| {
+        if ui.button("Back").clicked() {
+            state.screen = if state.return_to == Screen::MatchDetail {
+                Screen::Home
+            } else {
+                state.return_to
+            };
+        }
+        ui.add_space(6.0);
+        let accent = super::theme::pal(ui.ctx()).accent;
+        super::icons::icon(ui, super::icons::Icon::Map, 16.0, accent);
+        open_replay = ui
+            .button("2D replay")
+            .on_hover_text("Top-down view of each kill, plant and defuse")
+            .clicked();
+    });
+    if open_replay {
+        if let Some(id) = state.selected_match.clone() {
+            let who = state.match_perspective.clone();
+            state.open_replay(id, who, intents);
+            return;
+        }
     }
     let Some(id) = state.selected_match.clone() else { return };
     let Some(d) = state.matches.get(&id).cloned() else {

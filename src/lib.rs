@@ -17,6 +17,7 @@ pub mod diagnostics;
 pub mod error;
 pub mod ipc;
 pub mod logging;
+pub mod replay;
 pub mod riot;
 pub mod secret;
 pub mod stats;

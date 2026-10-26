@@ -22,6 +22,17 @@ pub struct MapInfo {
     pub icon: String,
     /// Large 16:9 artwork (loaded on demand, not pre-cached).
     pub splash: String,
+    /// Top-down minimap (`displayIcon`), used by the 2D replay.
+    pub minimap: String,
+    /// World → minimap calibration; `None` if valorant-api has none for this map.
+    pub cal: Option<crate::replay::calibrate::MapCal>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Weapon {
+    pub name: String,
+    /// Kill-feed silhouette.
+    pub icon: String,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -42,6 +53,8 @@ pub struct Catalog {
     /// Keyed by lowercase map UUID *and* by its `/Game/Maps/...` path.
     pub maps: HashMap<String, MapInfo>,
     pub tiers: HashMap<u32, Tier>,
+    /// Keyed by lowercase weapon UUID.
+    pub weapons: HashMap<String, Weapon>,
     /// UUID of the act that is live right now.
     pub current_act: Option<String>,
     /// e.g. "Episode 9 · Act III".
@@ -62,6 +75,10 @@ impl Catalog {
             // "/Game/Maps/Ascent/Ascent" -> "Ascent" as a last resort.
             id.rsplit('/').next().unwrap_or(id).to_string()
         })
+    }
+
+    pub fn weapon(&self, id: &str) -> Option<&Weapon> {
+        self.weapons.get(&id.to_ascii_lowercase())
     }
 
     pub fn tier(&self, tier: u32) -> Option<&Tier> {
@@ -105,12 +122,13 @@ fn str_of(v: &Value, k: &str) -> String {
 
 /// Fetch the full catalog. Individual sections that fail are left empty.
 pub async fn fetch_catalog(http: &reqwest::Client) -> Result<Catalog, ApiError> {
-    let (version, agents, maps, tiers, seasons) = tokio::join!(
+    let (version, agents, maps, tiers, seasons, weapons) = tokio::join!(
         client_version(http),
         get::<Vec<Value>>(http, "/v1/agents?isPlayableCharacter=true"),
         get::<Vec<Value>>(http, "/v1/maps"),
         get::<Vec<Value>>(http, "/v1/competitivetiers"),
         get::<Vec<Value>>(http, "/v1/seasons"),
+        get::<Vec<Value>>(http, "/v1/weapons"),
     );
     if let (Err(e), Err(_), Err(_)) = (&version, &agents, &maps) {
         return Err(ApiError::Network(e.to_string()));
@@ -134,9 +152,20 @@ pub async fn fetch_catalog(http: &reqwest::Client) -> Result<Catalog, ApiError> 
             name: str_of(&m, "displayName"),
             icon: str_of(&m, "listViewIcon"),
             splash: str_of(&m, "splash"),
+            minimap: str_of(&m, "displayIcon"),
+            cal: map_cal(&m),
         };
         c.maps.insert(str_of(&m, "mapUrl"), info.clone());
         c.maps.insert(str_of(&m, "uuid").to_ascii_lowercase(), info);
+    }
+    for w in weapons.unwrap_or_default() {
+        c.weapons.insert(
+            str_of(&w, "uuid").to_ascii_lowercase(),
+            Weapon {
+                name: str_of(&w, "displayName"),
+                icon: str_of(&w, "killStreamIcon"),
+            },
+        );
     }
     // The last tier table is the current episode's.
     if let Some(table) = tiers.unwrap_or_default().last() {
@@ -158,6 +187,12 @@ pub async fn fetch_catalog(http: &reqwest::Client) -> Result<Catalog, ApiError> 
     c.current_act = current_act(&seasons, chrono::Utc::now());
     c.current_act_name = c.current_act.as_deref().and_then(|a| act_name(&seasons, a));
     Ok(c)
+}
+
+/// The four calibration constants of a `/v1/maps` entry.
+pub fn map_cal(m: &Value) -> Option<crate::replay::calibrate::MapCal> {
+    let f = |k: &str| m.get(k).and_then(Value::as_f64).unwrap_or(0.0) as f32;
+    crate::replay::calibrate::MapCal::new(f("xMultiplier"), f("yMultiplier"), f("xScalarToAdd"), f("yScalarToAdd"))
 }
 
 /// "Episode 9 · Act III" from the seasons list.
@@ -218,6 +253,8 @@ pub async fn cache_icons(http: &reqwest::Client, mut c: Catalog, dir: &Path) -> 
         .values()
         .map(|a| a.icon.clone())
         .chain(c.maps.values().map(|m| m.icon.clone()))
+        .chain(c.maps.values().map(|m| m.minimap.clone()))
+        .chain(c.weapons.values().map(|w| w.icon.clone()))
         .chain(c.tiers.values().map(|t| t.icon.clone()))
         .filter(|u| u.starts_with("https://"))
         .collect::<std::collections::HashSet<_>>()
@@ -257,7 +294,11 @@ pub async fn cache_icons(http: &reqwest::Client, mut c: Catalog, dir: &Path) -> 
         }
     };
     c.agents.values_mut().for_each(|a| local(&mut a.icon));
-    c.maps.values_mut().for_each(|m| local(&mut m.icon));
+    c.maps.values_mut().for_each(|m| {
+        local(&mut m.icon);
+        local(&mut m.minimap);
+    });
+    c.weapons.values_mut().for_each(|w| local(&mut w.icon));
     c.tiers.values_mut().for_each(|t| local(&mut t.icon));
     c
 }

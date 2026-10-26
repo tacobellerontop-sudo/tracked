@@ -132,8 +132,8 @@ fn left_column(
             state.screen = Screen::Matches;
         }
         let entries: Vec<_> = career.matches.iter().take(5).cloned().collect();
-        if let Some(id) = super::career::match_table(ui, state, &career.puuid, &entries, "home-history") {
-            state.open_match(id, None, intents);
+        if let Some(action) = super::career::match_table(ui, state, &career.puuid, &entries, "home-history") {
+            action.apply(state, None, intents);
         }
     });
 }

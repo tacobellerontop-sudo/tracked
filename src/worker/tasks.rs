@@ -236,6 +236,49 @@ async fn profile(ctx: &Arc<Ctx>, id: &pd::LoadoutIdentity) -> crate::ipc::Profil
 }
 
 /// Load one match (memory cache -> disk cache -> Riot) and publish it.
+/// Build the 2D replay for a match. The raw match-details JSON is cached on
+/// disk, so reopening a replay costs no request.
+pub async fn load_replay(ctx: &Arc<Ctx>, id: &str) -> Result<Arc<crate::replay::MatchReplay>, ApiError> {
+    if !crate::riot::pd::is_uuid(id) {
+        return Err(ApiError::Other("invalid match id".into()));
+    }
+    let disk = ctx
+        .cache_dir
+        .as_ref()
+        .map(|d| d.join("replays").join(format!("{id}.json")));
+    let mut json: Option<serde_json::Value> = None;
+    if let Some(path) = &disk {
+        if let Ok(bytes) = tokio::fs::read(path).await {
+            json = serde_json::from_slice(&bytes).ok();
+        }
+    }
+    let json = match json {
+        Some(j) => j,
+        None => {
+            let s = ctx.session()?;
+            let j = crate::replay::fetch::fetch_json(&s, id).await?;
+            if let Some(path) = &disk {
+                if let Some(dir) = path.parent() {
+                    let _ = tokio::fs::create_dir_all(dir).await;
+                }
+                let _ = tokio::fs::write(path, serde_json::to_vec(&j).unwrap_or_default()).await;
+            }
+            j
+        }
+    };
+    let raw: crate::replay::fetch::MatchDetailsRaw = serde_json::from_value(json)?;
+    let replay = crate::replay::from_raw(&raw);
+    if let Some(r) = replay.rounds.first() {
+        tracing::debug!(
+            match_id = id,
+            rounds = replay.rounds.len(),
+            first_round_kills = r.feed.len(),
+            "replay built"
+        );
+    }
+    Ok(Arc::new(replay))
+}
+
 pub async fn load_match(ctx: &Arc<Ctx>, id: &str) -> Result<Arc<MatchDetail>, ApiError> {
     if let Some(m) = ctx.matches.lock().unwrap().get(id).cloned() {
         ctx.sink.send(Update::MatchDetails(id.to_string(), m.clone()));

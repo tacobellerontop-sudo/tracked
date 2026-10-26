@@ -31,8 +31,28 @@ pub enum Screen {
     Social,
     Settings,
     MatchDetail,
+    /// 2D top-down replay of `AppState::replay`.
+    Replay,
     /// The connection checklist (also the startup screen).
     Connection,
+}
+
+/// State of the 2D replay screen.
+#[derive(Default)]
+pub struct ReplayView {
+    pub match_id: Option<MatchId>,
+    /// `None` while loading.
+    pub data: Option<Result<Arc<crate::replay::MatchReplay>, String>>,
+    pub round: usize,
+    pub frame: usize,
+    pub playing: bool,
+    /// Frames per second while playing.
+    pub speed: f32,
+    /// `ui.input().time` at which playback advances next.
+    pub next_step_at: f64,
+    /// Whose team counts as "yours" for colours.
+    pub perspective: Option<Puuid>,
+    pub return_to: Option<Screen>,
 }
 
 /// Which Social tab is open.
@@ -252,6 +272,7 @@ pub struct AppState {
     /// Whose point of view the match detail screen highlights.
     pub match_perspective: Option<Puuid>,
     pub return_to: Screen,
+    pub replay: ReplayView,
     pub live: Option<LiveMatch>,
     pub names: HashMap<Puuid, RiotId>,
     pub probes: HashMap<Puuid, Result<PlayerProbe, String>>,
@@ -300,6 +321,7 @@ impl AppState {
             selected_match: None,
             match_perspective: None,
             return_to: Screen::Home,
+            replay: ReplayView::default(),
             live: None,
             names: HashMap::new(),
             probes: HashMap::new(),
@@ -351,6 +373,11 @@ impl AppState {
             Update::Career(c) => self.career = Some(c),
             Update::MatchDetails(id, m) => {
                 self.matches.insert(id, m);
+            }
+            Update::Replay { match_id, result } => {
+                if self.replay.match_id.as_deref() == Some(match_id.as_str()) {
+                    self.replay.data = Some(result.map_err(|e| e.0));
+                }
             }
             Update::Error(e) => self.pending_toasts.push(e.0),
             Update::LiveMatch(m) => self.live = m,
@@ -464,6 +491,24 @@ impl AppState {
         self.return_to = self.screen;
         self.selected_match = Some(id);
         self.screen = Screen::MatchDetail;
+    }
+
+    /// Open the 2D replay of a match.
+    pub fn open_replay(&mut self, id: MatchId, perspective: Option<Puuid>, intents: &IntentTx) {
+        if self.replay.match_id.as_deref() != Some(id.as_str()) || matches!(self.replay.data, Some(Err(_))) {
+            intents.send(Intent::OpenReplay(id.clone()));
+            self.replay = ReplayView {
+                match_id: Some(id),
+                speed: 1.0,
+                ..Default::default()
+            };
+        }
+        self.replay.perspective = perspective.or_else(|| self.self_puuid().map(str::to_string));
+        self.replay.playing = false;
+        if self.screen != Screen::Replay {
+            self.replay.return_to = Some(self.screen);
+        }
+        self.screen = Screen::Replay;
     }
 
     /// Leave the startup screen for the home screen (Live if a game is on).
