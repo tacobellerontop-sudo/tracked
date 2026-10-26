@@ -7,7 +7,7 @@ use super::widgets;
 use crate::app::AppState;
 use crate::content::valorant_api::queue_name;
 use crate::ipc::{ClientStatus, Intent, IntentTx};
-use crate::riot::models::Outcome;
+use crate::riot::models::{MatchHistoryEntry, MatchId, Outcome};
 
 pub fn ui(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
     ui.horizontal(|ui| {
@@ -69,11 +69,25 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
     ui.separator();
     ui.label(RichText::new("Recent matches").strong());
 
+    if let Some(id) = match_table(ui, state, &career.puuid, &career.matches, "history") {
+        state.open_match(id, None, intents);
+    }
+}
+
+/// Match history table from `puuid`'s perspective. Returns a clicked match.
+pub fn match_table(
+    ui: &mut egui::Ui,
+    state: &AppState,
+    puuid: &str,
+    entries: &[MatchHistoryEntry],
+    salt: &str,
+) -> Option<MatchId> {
+    let cat = state.catalog.clone();
     let mut clicked = None;
     // Selectable labels would swallow the click meant for the row.
     ui.style_mut().interaction.selectable_labels = false;
     TableBuilder::new(ui)
-        .id_salt("history")
+        .id_salt(salt)
         .striped(true)
         .sense(egui::Sense::click())
         .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
@@ -94,9 +108,9 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
             }
         })
         .body(|mut body| {
-            for entry in &career.matches {
+            for entry in entries {
                 let detail = state.matches.get(&entry.match_id);
-                let me = detail.and_then(|d| d.player(&career.puuid));
+                let me = detail.and_then(|d| d.player(puuid));
                 body.row(28.0, |mut row| {
                     row.col(|ui| {
                         if let Some(p) = me {
@@ -121,7 +135,7 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
                     row.col(|ui| {
                         ui.label(queue_name(&d.info.queue_id));
                     });
-                    let outcome = d.outcome_for(&career.puuid);
+                    let outcome = d.outcome_for(puuid);
                     row.col(|ui| {
                         match outcome {
                             Some((Outcome::Win, a, b)) => ui.colored_label(widgets::WIN, format!("W {a}–{b}")),
@@ -131,28 +145,23 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
                         };
                     });
                     let s = &p.stats;
-                    row.col(|ui| {
-                        ui.label(s.score.to_string());
-                    });
-                    row.col(|ui| {
-                        ui.label(format!("{}/{}/{}", s.kills, s.deaths, s.assists));
-                    });
-                    row.col(|ui| {
-                        ui.label(format!("{:.0}", s.adr()));
-                    });
-                    row.col(|ui| {
-                        ui.label(format!("{:.0}%", s.hs_pct()));
-                    });
-                    row.col(|ui| {
-                        ui.label(format!("{:.0}", s.acs()));
-                    });
+                    let cells = [
+                        s.score.to_string(),
+                        format!("{}/{}/{}", s.kills, s.deaths, s.assists),
+                        format!("{:.0}", s.adr()),
+                        format!("{:.0}%", s.hs_pct()),
+                        format!("{:.0}", s.acs()),
+                    ];
+                    for c in cells {
+                        row.col(|ui| {
+                            ui.label(c);
+                        });
+                    }
                     if row.response().clicked() {
                         clicked = Some(entry.match_id.clone());
                     }
                 });
             }
         });
-    if let Some(id) = clicked {
-        state.open_match(id, intents);
-    }
+    clicked
 }

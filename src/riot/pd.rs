@@ -97,3 +97,41 @@ pub fn rank_snapshot(mmr: &PlayerMmr, current_act: Option<&str>) -> RankSnapshot
         .max(snap.tier);
     snap
 }
+
+/// What we show next to a player in a lobby: rank + recent RR swings.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct PlayerProbe {
+    pub rank: RankSnapshot,
+    /// RR earned in the last few competitive games, newest first.
+    pub recent_rr: Vec<i32>,
+}
+
+impl PlayerProbe {
+    pub fn recent_wins(&self) -> (usize, usize) {
+        let wins = self.recent_rr.iter().filter(|r| **r > 0).count();
+        (wins, self.recent_rr.len())
+    }
+}
+
+/// Rank-probe one player (two PD calls).
+pub async fn probe(s: &Session, puuid: &str, current_act: Option<&str>) -> Result<PlayerProbe, ApiError> {
+    if !is_uuid(puuid) {
+        return Err(ApiError::Other("invalid player id".into()));
+    }
+    let (mmr, updates) = tokio::join!(player_mmr(s, puuid), competitive_updates(s, puuid, 5));
+    let rank = match mmr {
+        Ok(m) => rank_snapshot(&m, current_act),
+        Err(ApiError::NotFound) => RankSnapshot::default(),
+        Err(e) => return Err(e),
+    };
+    let recent_rr = updates
+        .map(|u| {
+            u.matches
+                .iter()
+                .filter(|m| m.tier_after_update > 0)
+                .map(|m| m.ranked_rating_earned)
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(PlayerProbe { rank, recent_rr })
+}

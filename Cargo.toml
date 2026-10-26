@@ -18,6 +18,17 @@ path = "src/lib.rs"
 name = "ascend-lite"
 path = "src/main.rs"
 
+[features]
+default = []
+# Dev/test only: lets ASCEND_FAKE_RIOT_BASE=https://127.0.0.1:<port> stand in
+# for Riot's PD/GLZ hosts so the whole worker can be tested end to end.
+# Never enable this in release builds.
+fake-riot = []
+
+[[test]]
+name = "e2e_worker"
+required-features = ["fake-riot"]
+
 [dependencies]
 eframe = "0.31"
 egui = "0.31"
@@ -39,6 +50,7 @@ base64 = "0.22"
 regex = "1"
 directories = "5"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+semver = "1"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "test-util"] }

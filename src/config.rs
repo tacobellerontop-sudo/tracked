@@ -32,7 +32,11 @@ pub struct Settings {
     pub backend_url: Option<String>,
     pub disclaimer_accepted: bool,
     pub check_for_updates: bool,
+    /// GitHub "latest release" API URL (or any JSON with a `tag_name`).
+    pub update_url: String,
 }
+
+pub const DEFAULT_UPDATE_URL: &str = "https://api.github.com/repos/tacobellerontop-sudo/tracked/releases/latest";
 
 impl Default for Settings {
     fn default() -> Self {
@@ -44,6 +48,7 @@ impl Default for Settings {
             backend_url: None,
             disclaimer_accepted: false,
             check_for_updates: true,
+            update_url: DEFAULT_UPDATE_URL.to_string(),
         }
     }
 }

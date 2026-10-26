@@ -11,6 +11,7 @@
 pub mod app;
 pub mod config;
 pub mod content;
+pub mod crosshair;
 pub mod error;
 pub mod ipc;
 pub mod logging;

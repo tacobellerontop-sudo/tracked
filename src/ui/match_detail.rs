@@ -12,7 +12,11 @@ use crate::riot::models::{MatchDetail, PlayerMatch};
 
 pub fn ui(ui: &mut egui::Ui, state: &mut AppState, _intents: &IntentTx) {
     if ui.button("Back").clicked() {
-        state.screen = Screen::Career;
+        state.screen = if state.return_to == Screen::MatchDetail {
+            Screen::Career
+        } else {
+            state.return_to
+        };
     }
     let Some(id) = state.selected_match.clone() else { return };
     let Some(d) = state.matches.get(&id).cloned() else {
@@ -23,7 +27,7 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState, _intents: &IntentTx) {
         return;
     };
     let cat = state.catalog.clone();
-    let me = state.self_puuid().map(str::to_string);
+    let me = state.match_perspective.clone();
     let my_team = me.as_deref().and_then(|p| d.player(p)).map(|p| p.team_id.clone());
 
     ui.horizontal(|ui| {

@@ -1,7 +1,9 @@
 //! Top-level layout: status bar, left nav rail, content panel, toasts.
 
 pub mod career;
+pub mod crosshairs;
 pub mod live;
+pub mod lookup;
 pub mod match_detail;
 pub mod settings;
 pub mod widgets;
@@ -20,7 +22,9 @@ It never reads game memory, never injects into or modifies any Riot process, and
 const NAV: &[(Screen, &str, egui::Key)] = &[
     (Screen::Live, "Live", egui::Key::Num1),
     (Screen::Career, "Career", egui::Key::Num2),
-    (Screen::Settings, "Settings", egui::Key::Num6),
+    (Screen::Lookup, "Lookup", egui::Key::Num3),
+    (Screen::Crosshairs, "Crosshairs", egui::Key::Num4),
+    (Screen::Settings, "Settings", egui::Key::Num5),
 ];
 
 pub fn draw(ctx: &egui::Context, state: &mut AppState, intents: &IntentTx) {
@@ -61,6 +65,8 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState, intents: &IntentTx) {
             .show(ui, |ui| match state.screen {
                 Screen::Live => live::ui(ui, state, intents),
                 Screen::Career => career::ui(ui, state, intents),
+                Screen::Lookup => lookup::ui(ui, state, intents),
+                Screen::Crosshairs => crosshairs::ui(ui, state, intents),
                 Screen::MatchDetail => match_detail::ui(ui, state, intents),
                 Screen::Settings => settings::ui(ui, state, intents),
             });

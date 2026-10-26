@@ -9,10 +9,10 @@ use serde_json::json;
 use super::tasks::{self, Ctx};
 use crate::content::valorant_api::{Agent, MapInfo, Tier};
 use crate::content::Catalog;
-use crate::ipc::{CareerSummary, ClientStatus, Intent, IntentRx, RrPoint, Update};
+use crate::ipc::{CareerSummary, ClientStatus, Intent, IntentRx, PlayerCard, RrPoint, Update, UpdateStatus};
 use crate::riot::match_stats::normalize;
-use crate::riot::models::{MatchDetail, MatchHistoryEntry, RawMatch};
-use crate::riot::pd::RankSnapshot;
+use crate::riot::models::{LiveMatch, LivePhase, LivePlayer, MatchDetail, MatchHistoryEntry, RawMatch};
+use crate::riot::pd::{PlayerProbe, RankSnapshot};
 use crate::riot::presence::{GamePresence, LoopState};
 use crate::riot::RiotId;
 
@@ -175,6 +175,94 @@ pub fn synthetic_match(seed: u64) -> MatchDetail {
     normalize(&raw)
 }
 
+/// Demo player 7 has streamer mode on.
+const DEMO_INCOGNITO: usize = 7;
+
+fn live_match() -> LiveMatch {
+    LiveMatch {
+        phase: LivePhase::InGame,
+        match_id: "demo".into(),
+        map_id: "/Game/Maps/Lotus/Lotus".into(),
+        queue_id: "competitive".into(),
+        server: "aresriot.aws-rclusterprod-euc1-1.eu-gp-frankfurt-1".into(),
+        players: (0..10)
+            .map(|i| LivePlayer {
+                puuid: puuid(i),
+                team_id: if i < 5 { "Red" } else { "Blue" }.into(),
+                character_id: agent_id(i),
+                locked: true,
+                account_level: (i != DEMO_INCOGNITO).then_some(40 + i as u32 * 23),
+                incognito: i == DEMO_INCOGNITO,
+                is_self: i == 0,
+            })
+            .collect(),
+    }
+}
+
+fn probe(i: usize) -> PlayerProbe {
+    let tier = [16, 15, 17, 14, 18, 16, 19, 15, 13, 17][i];
+    let games = 20 + i as u32 * 3;
+    PlayerProbe {
+        rank: RankSnapshot {
+            tier,
+            rr: (i as i32 * 17) % 100,
+            season_wins: games / 2 + (i as u32 % 4),
+            season_games: games,
+            peak_tier: tier + 2,
+        },
+        recent_rr: (0..5)
+            .map(|k| if (i + k).is_multiple_of(3) { -14 } else { 19 })
+            .collect(),
+    }
+}
+
+fn send_live(ctx: &Ctx) {
+    ctx.sink.send(Update::Game(Some(GamePresence {
+        loop_state: LoopState::InGame,
+        party_size: 2,
+        queue_id: "competitive".into(),
+        map: "/Game/Maps/Lotus/Lotus".into(),
+        ..Default::default()
+    })));
+    ctx.sink.send(Update::LiveMatch(Some(live_match())));
+    ctx.sink.send(Update::Names(
+        (0..10)
+            .filter(|i| *i != DEMO_INCOGNITO)
+            .map(|i| {
+                (
+                    puuid(i),
+                    RiotId {
+                        game_name: NAMES[i].into(),
+                        tag_line: format!("{}", 1000 + i * 7),
+                    },
+                )
+            })
+            .collect(),
+    ));
+    for i in 0..10 {
+        ctx.sink.send(Update::Probe(puuid(i), Ok(probe(i))));
+    }
+}
+
+fn card(i: usize, matches: &[MatchDetail]) -> PlayerCard {
+    PlayerCard {
+        puuid: puuid(i),
+        riot_id: Some(RiotId {
+            game_name: NAMES[i].into(),
+            tag_line: format!("{}", 1000 + i * 7),
+        }),
+        probe: probe(i),
+        matches: matches[..5]
+            .iter()
+            .map(|m| MatchHistoryEntry {
+                match_id: m.info.match_id.clone(),
+                game_start_time: m.info.started_at_unix * 1000,
+                queue_id: m.info.queue_id.clone(),
+            })
+            .collect(),
+    }
+}
+
 pub async fn run(mut intents: IntentRx, ctx: Arc<Ctx>) {
     ctx.set_catalog(catalog());
     let me = RiotId {
@@ -234,10 +322,27 @@ pub async fn run(mut intents: IntentRx, ctx: Arc<Ctx>) {
     };
     send_career();
 
+    send_live(&ctx);
+
     while let Some(intent) = intents.recv().await {
         match intent {
             Intent::Ping(n) => ctx.sink.send(Update::Pong(n)),
             Intent::RefreshCareer => send_career(),
+            Intent::RefreshLiveMatch | Intent::ProbePartyMmr => send_live(&ctx),
+            Intent::CheckForUpdates => ctx.sink.send(Update::UpdateStatus(UpdateStatus::UpToDate)),
+            Intent::LookupPuuid(p) => {
+                let i = (0..10).find(|i| puuid(*i) == p).unwrap_or(1);
+                ctx.sink.send(Update::PlayerLookup(Ok(card(i, &matches))));
+            }
+            Intent::LookupPlayer { name, .. } => {
+                let found = (0..10).find(|i| NAMES[*i].eq_ignore_ascii_case(&name) && *i != DEMO_INCOGNITO);
+                ctx.sink.send(Update::PlayerLookup(match found {
+                    Some(i) => Ok(card(i, &matches)),
+                    None => Err(crate::error::UserFacingError(
+                        "No player found with that Riot ID".into(),
+                    )),
+                }));
+            }
             Intent::SaveSettings(s) => tasks::save_settings(ctx.clone(), s).await,
             Intent::Shutdown => break,
             _ => {}

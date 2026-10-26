@@ -328,3 +328,52 @@ impl MatchDetail {
         Some((outcome, mine.rounds_won, theirs))
     }
 }
+
+// ------------------------------------------------------------- live game --
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LivePhase {
+    Party,
+    Pregame,
+    InGame,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LivePlayer {
+    pub puuid: Puuid,
+    /// "Red"/"Blue" in game, the ally team id in pre-game, "Party" in menus.
+    pub team_id: String,
+    pub character_id: String,
+    pub locked: bool,
+    /// `None` when the player hides their level.
+    pub account_level: Option<u32>,
+    /// Streamer mode: we do not resolve or show this player's name.
+    pub incognito: bool,
+    pub is_self: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LiveMatch {
+    pub phase: LivePhase,
+    pub match_id: String,
+    pub map_id: String,
+    pub queue_id: String,
+    pub server: String,
+    pub players: Vec<LivePlayer>,
+}
+
+impl LiveMatch {
+    /// Team ids with our own team first.
+    pub fn teams(&self) -> Vec<String> {
+        let mut teams: Vec<String> = Vec::new();
+        if let Some(me) = self.players.iter().find(|p| p.is_self) {
+            teams.push(me.team_id.clone());
+        }
+        for p in &self.players {
+            if !teams.contains(&p.team_id) {
+                teams.push(p.team_id.clone());
+            }
+        }
+        teams
+    }
+}

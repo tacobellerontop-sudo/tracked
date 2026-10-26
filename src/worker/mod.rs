@@ -30,6 +30,8 @@ const ALIVE_CHECK: Duration = Duration::from_secs(3);
 /// Presence polling cadence when the websocket is down.
 const PRESENCE_POLL: Duration = Duration::from_secs(5);
 const MAX_BACKOFF: Duration = Duration::from_secs(30);
+/// Party polling while sitting in menus (presence events also trigger it).
+const MENU_LIVE_POLL: Duration = Duration::from_secs(30);
 
 /// Spawn the worker on its own OS thread with a multi-thread tokio runtime.
 pub fn spawn(intents: IntentRx, sink: UpdateSink, settings: Settings) -> JoinHandle<()> {
@@ -76,6 +78,8 @@ struct Supervisor {
     next_socket_try: Instant,
     next_presence_poll: Instant,
     game: Option<GamePresence>,
+    live_task: Option<TaskHandle<()>>,
+    next_live_poll: Instant,
 }
 
 /// The intent dispatch + supervision loop.
@@ -99,7 +103,12 @@ pub async fn run(mut intents: IntentRx, sink: UpdateSink, settings: Settings) {
         next_socket_try: now,
         next_presence_poll: now,
         game: None,
+        live_task: None,
+        next_live_poll: now,
     };
+    if sup.ctx.settings.lock().unwrap().check_for_updates {
+        tokio::spawn(tasks::check_for_updates(sup.ctx.clone()));
+    }
 
     let mut tick = tokio::time::interval(Duration::from_millis(500));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -125,6 +134,19 @@ impl Supervisor {
             Intent::Bootstrap => {
                 self.backoff = Duration::from_secs(2);
                 self.next_check = Instant::now();
+            }
+            Intent::RefreshLiveMatch => self.next_live_poll = Instant::now(),
+            Intent::ProbePartyMmr => {
+                tokio::spawn(tasks::rescan_lobby(ctx));
+            }
+            Intent::LookupPlayer { name, tag } => {
+                tokio::spawn(tasks::lookup(ctx, tasks::LookupQuery::RiotId { name, tag }));
+            }
+            Intent::LookupPuuid(p) => {
+                tokio::spawn(tasks::lookup(ctx, tasks::LookupQuery::Puuid(p)));
+            }
+            Intent::CheckForUpdates => {
+                tokio::spawn(tasks::check_for_updates(ctx));
             }
             Intent::RefreshCareer => {
                 tokio::spawn(tasks::refresh_career(ctx));
@@ -160,7 +182,26 @@ impl Supervisor {
         }
         if let Phase::Authed { .. } = self.phase {
             self.maintain_presence().await;
+            self.maintain_live();
         }
+    }
+
+    /// Poll GLZ every few seconds while in agent select / in game, and only
+    /// slowly while in menus.
+    fn maintain_live(&mut self) {
+        let now = Instant::now();
+        let busy = self.live_task.as_ref().is_some_and(|h| !h.is_finished());
+        if busy || now < self.next_live_poll {
+            return;
+        }
+        let state = self.game.as_ref().map(|g| g.loop_state).unwrap_or_default();
+        let interval = if state.is_live() {
+            self.ctx.settings.lock().unwrap().poll_interval()
+        } else {
+            MENU_LIVE_POLL
+        };
+        self.next_live_poll = now + interval;
+        self.live_task = Some(tokio::spawn(tasks::refresh_live(self.ctx.clone(), state)));
     }
 
     async fn try_connect(&mut self) {
@@ -276,6 +317,9 @@ impl Supervisor {
                 if prev == LoopState::InGame && gp.loop_state == LoopState::Menus {
                     tokio::spawn(tasks::refresh_career(self.ctx.clone()));
                 }
+                if prev != gp.loop_state || self.game.as_ref().map(|g| g.party_size) != Some(gp.party_size) {
+                    self.next_live_poll = Instant::now();
+                }
                 self.game = Some(gp.clone());
                 self.ctx.sink.send(Update::Game(Some(gp)));
             }
@@ -286,6 +330,11 @@ impl Supervisor {
         if let Some(h) = self.socket.take() {
             h.abort();
         }
+        if let Some(h) = self.live_task.take() {
+            h.abort();
+        }
+        *self.ctx.live.lock().unwrap() = None;
+        self.ctx.sink.send(Update::LiveMatch(None));
         self.socket_connected = false;
         self.game = None;
         *self.ctx.session.write().unwrap() = None;

@@ -16,7 +16,7 @@ async fn bootstrap_against_fake_local_api() {
     let lock = lockfile::read().await.expect("lockfile");
     assert_eq!(lock.port, port);
 
-    let session = Session::connect(&lock, reqwest::Client::new(), "release-test".into())
+    let session = Session::connect(&lock, reqwest::Client::new(), common::CLIENT_VERSION.into())
         .await
         .expect("connect");
     assert_eq!(session.puuid, common::PUUID);

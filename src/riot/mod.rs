@@ -1,6 +1,7 @@
 //! Everything that talks to Riot: the local client API and the PD/GLZ
 //! endpoints, using tokens the local API issued. No process access of any kind.
 
+pub mod account;
 pub mod auth;
 pub mod glz;
 pub mod local;
@@ -60,6 +61,13 @@ impl Session {
         let local = LocalClient::new(lock)?;
         let ent = local.entitlements().await?;
         let region = detect_region(&local).await?;
+        // Under the test-only fake backend, PD/GLZ live on loopback with a
+        // self-signed cert, so use the loopback-only TLS client for them.
+        let http = if region.fake_base.is_some() {
+            local_http()?
+        } else {
+            http
+        };
         let chat = local.chat_session().await.ok();
         let riot_id = chat.filter(|c| !c.game_name.is_empty()).map(|c| RiotId {
             game_name: c.game_name,
@@ -118,7 +126,8 @@ impl Session {
             .ok()
             .and_then(|u| u.host_str().map(str::to_string))
             .unwrap_or_default();
-        if !region::is_riot_api_host(&host) {
+        let fake = self.region.fake_base.is_some() && host == "127.0.0.1";
+        if !region::is_riot_api_host(&host) && !fake {
             return Err(ApiError::InvalidHost(host));
         }
 
@@ -167,6 +176,14 @@ impl Session {
             }
         }
     }
+}
+
+fn local_http() -> Result<reqwest::Client, ApiError> {
+    reqwest::Client::builder()
+        .use_preconfigured_tls((*tls::local_client_config()).clone())
+        .no_proxy()
+        .build()
+        .map_err(|e| ApiError::Other(e.to_string()))
 }
 
 /// Region from VALORANT's launch args, falling back to the client's region.

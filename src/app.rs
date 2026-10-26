@@ -5,16 +5,42 @@ use std::sync::Arc;
 
 use crate::config::{Settings, Theme};
 use crate::content::Catalog;
-use crate::ipc::{CareerSummary, ClientStatus, Intent, IntentTx, Update, UpdateRx};
-use crate::riot::models::{MatchDetail, MatchId};
+use crate::crosshair::CrosshairCode;
+use crate::ipc::{CareerSummary, ClientStatus, Intent, IntentTx, PlayerCard, Update, UpdateRx, UpdateStatus};
+use crate::riot::models::{LiveMatch, MatchDetail, MatchId, Puuid};
+use crate::riot::pd::PlayerProbe;
 use crate::riot::presence::GamePresence;
+use crate::riot::RiotId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
     Live,
     Career,
-    MatchDetail,
+    Lookup,
+    Crosshairs,
     Settings,
+    MatchDetail,
+}
+
+#[derive(Default)]
+pub struct LookupState {
+    pub input: String,
+    pub loading: bool,
+    pub result: Option<Result<PlayerCard, String>>,
+}
+
+#[derive(Default)]
+pub struct CrosshairEditor {
+    pub input: String,
+    pub name: String,
+    pub parsed: Option<Result<CrosshairCode, String>>,
+}
+
+impl CrosshairEditor {
+    pub fn load(&mut self, code: &str) {
+        self.input = code.to_string();
+        self.parsed = Some(CrosshairCode::parse(code).map_err(|e| e.to_string()));
+    }
 }
 
 /// A transient error message shown at the bottom of the window.
@@ -34,6 +60,15 @@ pub struct AppState {
     pub career_loading: bool,
     pub matches: HashMap<MatchId, Arc<MatchDetail>>,
     pub selected_match: Option<MatchId>,
+    /// Whose point of view the match detail screen highlights.
+    pub match_perspective: Option<Puuid>,
+    pub return_to: Screen,
+    pub live: Option<LiveMatch>,
+    pub names: HashMap<Puuid, RiotId>,
+    pub probes: HashMap<Puuid, Result<PlayerProbe, String>>,
+    pub lookup: LookupState,
+    pub crosshair: CrosshairEditor,
+    pub update_status: Option<UpdateStatus>,
     pub toasts: Vec<Toast>,
     pub pending_toasts: Vec<String>,
     pub settings: Settings,
@@ -51,6 +86,14 @@ impl AppState {
             career_loading: false,
             matches: HashMap::new(),
             selected_match: None,
+            match_perspective: None,
+            return_to: Screen::Career,
+            live: None,
+            names: HashMap::new(),
+            probes: HashMap::new(),
+            lookup: LookupState::default(),
+            crosshair: CrosshairEditor::default(),
+            update_status: None,
             toasts: Vec::new(),
             pending_toasts: Vec::new(),
             settings,
@@ -86,15 +129,42 @@ impl AppState {
                 self.matches.insert(id, m);
             }
             Update::Error(e) => self.pending_toasts.push(e.0),
+            Update::LiveMatch(m) => self.live = m,
+            Update::Names(names) => self.names.extend(names),
+            Update::Probe(p, r) => {
+                self.probes.insert(p, r.map_err(|e| e.0));
+            }
+            Update::PlayerLookup(r) => {
+                self.lookup.loading = false;
+                if let Ok(card) = &r {
+                    if let Some(id) = &card.riot_id {
+                        self.names.insert(card.puuid.clone(), id.clone());
+                    }
+                }
+                self.lookup.result = Some(r.map_err(|e| e.0));
+            }
+            Update::UpdateStatus(s) => self.update_status = Some(s),
         }
     }
 
-    pub fn open_match(&mut self, id: MatchId, intents: &IntentTx) {
+    /// Open a match, highlighting `perspective` (defaults to ourselves).
+    pub fn open_match(&mut self, id: MatchId, perspective: Option<Puuid>, intents: &IntentTx) {
         if !self.matches.contains_key(&id) {
             intents.send(Intent::LoadMatchDetails(id.clone()));
         }
+        self.match_perspective = perspective.or_else(|| self.self_puuid().map(str::to_string));
+        self.return_to = self.screen;
         self.selected_match = Some(id);
         self.screen = Screen::MatchDetail;
+    }
+
+    /// Start a lookup by PUUID (e.g. clicking a lobby player).
+    pub fn lookup_puuid(&mut self, puuid: &str, intents: &IntentTx) {
+        self.lookup.input = self.names.get(puuid).map(|id| id.to_string()).unwrap_or_default();
+        self.lookup.loading = true;
+        self.lookup.result = None;
+        self.screen = Screen::Lookup;
+        intents.send(Intent::LookupPuuid(puuid.to_string()));
     }
 
     /// Change a setting and persist it (the worker does the disk write).

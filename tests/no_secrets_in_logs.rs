@@ -39,7 +39,7 @@ async fn sample_run_never_logs_secrets() {
 
     let lock = lockfile::read().await.unwrap();
     tracing::debug!(target: "ascend_lite", ?lock, "lockfile loaded");
-    let session = Session::connect(&lock, reqwest::Client::new(), "release-test".into())
+    let session = Session::connect(&lock, reqwest::Client::new(), common::CLIENT_VERSION.into())
         .await
         .unwrap();
     tracing::debug!(target: "ascend_lite", ?session, "session established");

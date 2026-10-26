@@ -7,8 +7,8 @@ use std::sync::{mpsc, Arc};
 use crate::config::Settings;
 use crate::content::Catalog;
 use crate::error::UserFacingError;
-use crate::riot::models::{MatchDetail, MatchHistoryEntry, MatchId};
-use crate::riot::pd::RankSnapshot;
+use crate::riot::models::{LiveMatch, MatchDetail, MatchHistoryEntry, MatchId, Puuid};
+use crate::riot::pd::{PlayerProbe, RankSnapshot};
 use crate::riot::presence::GamePresence;
 use crate::riot::RiotId;
 
@@ -19,9 +19,19 @@ pub enum Intent {
     Ping(u64),
     /// Find the client and authenticate now (skips any pending backoff).
     Bootstrap,
+    /// Poll the live game now instead of waiting for the next tick.
+    RefreshLiveMatch,
     RefreshCareer,
     LoadMatchDetails(MatchId),
+    LookupPlayer {
+        name: String,
+        tag: String,
+    },
+    LookupPuuid(Puuid),
+    /// Re-probe ranks for everyone in the current party / lobby / match.
+    ProbePartyMmr,
     SaveSettings(Settings),
+    CheckForUpdates,
     Shutdown,
 }
 
@@ -63,6 +73,24 @@ pub struct CareerSummary {
     pub matches: Vec<MatchHistoryEntry>,
 }
 
+/// Result of a name#tag lookup.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlayerCard {
+    pub puuid: Puuid,
+    pub riot_id: Option<RiotId>,
+    pub probe: PlayerProbe,
+    pub matches: Vec<MatchHistoryEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum UpdateStatus {
+    Checking,
+    UpToDate,
+    NoReleases,
+    Available { version: String, url: String },
+    Failed(String),
+}
+
 /// Sent worker -> UI. One variant per thing the UI can display.
 #[derive(Debug, Clone)]
 pub enum Update {
@@ -71,6 +99,12 @@ pub enum Update {
     Content(Arc<Catalog>),
     /// Our own presence (menus / agent select / in game), `None` if unknown.
     Game(Option<GamePresence>),
+    LiveMatch(Option<LiveMatch>),
+    /// Resolved Riot IDs (never sent for streamer-mode players).
+    Names(Vec<(Puuid, RiotId)>),
+    Probe(Puuid, Result<PlayerProbe, UserFacingError>),
+    PlayerLookup(Result<PlayerCard, UserFacingError>),
+    UpdateStatus(UpdateStatus),
     CareerLoading(bool),
     Career(CareerSummary),
     MatchDetails(MatchId, Arc<MatchDetail>),
