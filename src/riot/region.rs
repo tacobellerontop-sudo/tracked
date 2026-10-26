@@ -161,11 +161,11 @@ impl Hosts {
     }
 }
 
-/// `ASCEND_FAKE_RIOT_BASE`, honoured only with the `fake-riot` feature and
+/// `TRACKED_FAKE_RIOT_BASE`, honoured only with the `fake-riot` feature and
 /// only for a loopback `https://127.0.0.1:<port>` URL.
 #[cfg(feature = "fake-riot")]
 fn fake_base() -> Option<String> {
-    let v = std::env::var("ASCEND_FAKE_RIOT_BASE").ok()?;
+    let v = std::env::var("TRACKED_FAKE_RIOT_BASE").ok()?;
     let port = v.strip_prefix("https://127.0.0.1:")?;
     port.parse::<u16>().ok().map(|_| v)
 }

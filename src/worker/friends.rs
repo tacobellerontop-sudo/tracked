@@ -1,5 +1,5 @@
 //! Built-in social: friends, presence and whispers through the Riot Client's
-//! own chat service. Nothing here touches the optional Ascend backend, and
+//! own chat service. Nothing here touches the optional Tracked backend, and
 //! message contents are never logged.
 
 use std::sync::Arc;

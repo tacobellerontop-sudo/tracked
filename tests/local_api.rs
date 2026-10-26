@@ -3,15 +3,15 @@
 
 mod common;
 
-use ascend_lite::error::ApiError;
-use ascend_lite::riot::presence::{self, LoopState};
-use ascend_lite::riot::{self, lockfile, Region, Shard};
+use tracked::error::ApiError;
+use tracked::riot::presence::{self, LoopState};
+use tracked::riot::{self, lockfile, Region, Shard};
 
 #[tokio::test]
 async fn connect_against_fake_local_api() {
     let port = common::start().await;
-    std::env::set_var("ASCEND_LOCKFILE", common::write_lockfile(port, common::PASSWORD));
-    std::env::set_var("ASCEND_CLIENT_VERSION", common::CLIENT_VERSION);
+    std::env::set_var("TRACKED_LOCKFILE", common::write_lockfile(port, common::PASSWORD));
+    std::env::set_var("TRACKED_CLIENT_VERSION", common::CLIENT_VERSION);
 
     let lock = lockfile::read().await.expect("lockfile");
     assert_eq!(lock.port, port);
@@ -39,7 +39,7 @@ async fn connect_against_fake_local_api() {
 async fn wrong_password_is_unauthorized() {
     let port = common::start().await;
     let lock = lockfile::parse(&format!("Riot Client:1:{port}:wrong:https")).unwrap();
-    let local = ascend_lite::riot::local::LocalClient::new(&lock).unwrap();
+    let local = tracked::riot::local::LocalClient::new(&lock).unwrap();
     assert!(matches!(local.entitlements().await, Err(ApiError::Unauthorized)));
 }
 
@@ -48,7 +48,7 @@ async fn local_tls_refuses_non_ip_hosts() {
     // Same fake server, but addressed by hostname: the loopback-only verifier
     // must refuse the self-signed cert because the target isn't a loopback IP.
     let port = common::start().await;
-    let cfg = ascend_lite::riot::tls::local_client_config();
+    let cfg = tracked::riot::tls::local_client_config();
     let http = reqwest::Client::builder()
         .use_preconfigured_tls((*cfg).clone())
         .no_proxy()

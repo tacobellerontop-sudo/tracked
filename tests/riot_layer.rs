@@ -7,23 +7,23 @@ mod common;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
-use ascend_lite::ipc::{self, ClientStatus, Intent, Update};
-use ascend_lite::riot::{self, pd, GameState, RiotError};
 use futures_util::StreamExt;
+use tracked::ipc::{self, ClientStatus, Intent, Update};
+use tracked::riot::{self, pd, GameState, RiotError};
 
 #[tokio::test(flavor = "multi_thread")]
 async fn milestones() {
-    std::env::set_var("ASCEND_CLIENT_VERSION", common::CLIENT_VERSION);
-    std::env::set_var("ASCEND_OFFLINE_CONTENT", "1");
+    std::env::set_var("TRACKED_CLIENT_VERSION", common::CLIENT_VERSION);
+    std::env::set_var("TRACKED_OFFLINE_CONTENT", "1");
 
     // Client not running.
-    std::env::set_var("ASCEND_LOCKFILE", "/nonexistent/ascend/lockfile");
+    std::env::set_var("TRACKED_LOCKFILE", "/nonexistent/ascend/lockfile");
     assert_eq!(riot::connect().await.unwrap_err(), RiotError::ClientNotRunning);
 
     let port = common::start().await;
     let lockfile = common::write_lockfile(port, common::PASSWORD);
-    std::env::set_var("ASCEND_LOCKFILE", &lockfile);
-    std::env::set_var("ASCEND_FAKE_RIOT_BASE", format!("https://127.0.0.1:{port}"));
+    std::env::set_var("TRACKED_LOCKFILE", &lockfile);
+    std::env::set_var("TRACKED_FAKE_RIOT_BASE", format!("https://127.0.0.1:{port}"));
 
     // Signed out: chat session not loaded.
     common::SIGNED_IN.store(false, Ordering::SeqCst);
@@ -72,7 +72,7 @@ async fn milestones() {
     // M4: the full lifecycle in the worker: Ready → client closes (lockfile
     // gone) → Lost → NotRunning → client back → Ready again.
     let (tx, rx, sink, updates) = ipc::channels(egui::Context::default());
-    let handle = ascend_lite::worker::spawn(rx, sink, Default::default());
+    let handle = tracked::worker::spawn(rx, sink, Default::default());
     let wait_status = |want: &dyn Fn(&ClientStatus) -> bool, secs: u64| {
         let deadline = Instant::now() + Duration::from_secs(secs);
         while Instant::now() < deadline {

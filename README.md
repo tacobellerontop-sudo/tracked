@@ -1,4 +1,4 @@
-# Ascend-Lite
+# Tracked
 
 A lightweight, native desktop companion for VALORANT, written in Rust with
 [egui](https://github.com/emilk/egui). No web view, no bundled browser.
@@ -18,6 +18,8 @@ A lightweight, native desktop companion for VALORANT, written in Rust with
   with the score, other Riot games), unread badges and whispers, all through the Riot
   Client's own chat. No account or backend needed
 - **GPU rendering:** wgpu (Direct3D 12 / Vulkan), falling back to OpenGL automatically
+- **Slim title bar:** the app draws its own minimal title bar (drag, double-click to maximize,
+  edge resize). Settings → Window switches back to the system one
 
 ![Home dashboard](docs/screenshots/home.png)
 
@@ -30,7 +32,7 @@ player card, agent, map and rank art load from valorant-api.com.
 
 ## ⚠️ Disclaimer
 
-**Ascend-Lite is an unofficial third-party tool. It is not affiliated with, endorsed,
+**Tracked is an unofficial third-party tool. It is not affiliated with, endorsed,
 sponsored or approved by Riot Games.** VALORANT and Riot Games are trademarks of
 Riot Games, Inc. You use this app at your own risk and remain subject to Riot's
 Terms of Service.
@@ -55,8 +57,8 @@ The same disclaimer is shown on first launch and on the Settings screen.
 
 ## Download (Windows)
 
-Every push builds `ascend-lite.exe` with GitHub Actions (**Actions → Windows build →**
-pick a run → **Artifacts → ascend-lite-windows-x64**). Pushing a version tag
+Every push builds `tracked.exe` with GitHub Actions (**Actions → Windows build →**
+pick a run → **Artifacts → tracked-windows-x64**). Pushing a version tag
 (`git tag v0.1.0 && git push origin v0.1.0`) also publishes it as a GitHub Release.
 The download also includes `mock-backend.exe`, which you only need to try the social
 features offline. The exe isn't code-signed, so Windows SmartScreen may warn the first
@@ -108,19 +110,19 @@ environment only and never stored.
 
 | What | Where |
 | --- | --- |
-| Settings (theme, polling, crosshair presets…) | `%APPDATA%\ascend-lite\ascend-lite\config\settings.json` |
-| Icon & match cache, logs | `%LOCALAPPDATA%\ascend-lite\ascend-lite\cache\` |
+| Settings (theme, polling, crosshair presets…) | `%APPDATA%\tracked\tracked\config\settings.json` |
+| Icon & match cache, logs | `%LOCALAPPDATA%\tracked\tracked\cache\` |
 
-Settings never contain credentials. Override with `ASCEND_CONFIG_DIR` / `ASCEND_CACHE_DIR`.
+Settings never contain credentials. Override with `TRACKED_CONFIG_DIR` / `TRACKED_CACHE_DIR`.
 
 ### Environment variables (development)
 
 | Variable | Purpose |
 | --- | --- |
-| `ASCEND_LOCKFILE` | Use a different lockfile path |
-| `ASCEND_CLIENT_VERSION` | Override the Riot client version header |
+| `TRACKED_LOCKFILE` | Use a different lockfile path |
+| `TRACKED_CLIENT_VERSION` | Override the Riot client version header |
 | `RIOT_API_KEY` | Optional: search any Riot ID via Riot's official account API |
-| `ASCEND_OFFLINE_CONTENT` | Skip valorant-api.com (no artwork; used by tests) |
+| `TRACKED_OFFLINE_CONTENT` | Skip valorant-api.com (no artwork; used by tests) |
 
 ## Riot friends & whispers (built in)
 
@@ -132,10 +134,10 @@ same lockfile credentials as everything else. Nothing goes to any other server.
 - Friend requests are shown read-only; accept or decline them in the Riot Client.
 - No party invites or other in-game actions. The app reads state and sends whispers, nothing more.
 
-## Ascend backend social (optional)
+## Tracked backend social (optional)
 
 
-Friends, presence, lobbies and DMs need an Ascend-compatible backend, and are **off
+Friends, presence, lobbies and DMs need an Tracked-compatible backend, and are **off
 unless you set a backend URL** (Settings → Social). For local use there's an in-memory
 mock that implements the whole contract, with three bot friends who answer DMs:
 
@@ -166,7 +168,7 @@ contract.
 
 | Feature | Default | What |
 | --- | --- | --- |
-| `fake-riot` | off | **Tests only.** Lets `ASCEND_FAKE_RIOT_BASE=https://127.0.0.1:<port>` stand in for Riot's PD/GLZ hosts so the whole worker can be tested end to end. Never enable in release builds. |
+| `fake-riot` | off | **Tests only.** Lets `TRACKED_FAKE_RIOT_BASE=https://127.0.0.1:<port>` stand in for Riot's PD/GLZ hosts so the whole worker can be tested end to end. Never enable in release builds. |
 
 ## Tests & checks
 

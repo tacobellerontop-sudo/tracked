@@ -148,7 +148,7 @@ impl ConnectionReport {
         let mut out = String::new();
         let _ = writeln!(
             out,
-            "Ascend-Lite v{} on {}",
+            "Tracked v{} on {}",
             env!("CARGO_PKG_VERSION"),
             std::env::consts::OS
         );

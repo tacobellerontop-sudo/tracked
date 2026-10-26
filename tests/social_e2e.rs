@@ -5,9 +5,9 @@
 
 use std::time::{Duration, Instant};
 
-use ascend_lite::backend::models::MinVersionState;
-use ascend_lite::config::Settings;
-use ascend_lite::ipc::{self, BackendStatus, Intent, Update, UpdateRx};
+use tracked::backend::models::MinVersionState;
+use tracked::config::Settings;
+use tracked::ipc::{self, BackendStatus, Intent, Update, UpdateRx};
 
 fn wait_for<T>(rx: &UpdateRx, secs: u64, mut f: impl FnMut(&Update) -> Option<T>) -> T {
     let deadline = Instant::now() + Duration::from_secs(secs);
@@ -32,11 +32,11 @@ fn start_mock(rt: &tokio::runtime::Runtime) -> String {
 fn social_against_mock_backend() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let url = start_mock(&rt);
-    std::env::set_var("ASCEND_LOCKFILE", "/nonexistent/ascend/lockfile");
+    std::env::set_var("TRACKED_LOCKFILE", "/nonexistent/ascend/lockfile");
     // Keep tests off the internet (valorant-api.com would change the current act).
-    std::env::set_var("ASCEND_OFFLINE_CONTENT", "1");
+    std::env::set_var("TRACKED_OFFLINE_CONTENT", "1");
     std::env::set_var(
-        "ASCEND_CONFIG_DIR",
+        "TRACKED_CONFIG_DIR",
         std::env::temp_dir().join(format!("ascend-social-{}", std::process::id())),
     );
 
@@ -46,7 +46,7 @@ fn social_against_mock_backend() {
         check_for_updates: false,
         ..Default::default()
     };
-    let handle = ascend_lite::worker::spawn(rx, sink, settings);
+    let handle = tracked::worker::spawn(rx, sink, settings);
 
     wait_for(&updates, 5, |u| {
         matches!(u, Update::Backend(BackendStatus::SignedOut)).then_some(())
@@ -152,7 +152,7 @@ fn social_against_mock_backend() {
 
 #[test]
 fn min_version_gate_blocks_old_clients() {
-    use ascend_lite::backend::models::MinVersion;
+    use tracked::backend::models::MinVersion;
     let min = |v: &str| MinVersion {
         min_version: v.into(),
         download_url: Some("https://x".into()),
@@ -174,9 +174,9 @@ fn min_version_gate_blocks_old_clients() {
 fn unauthenticated_calls_are_rejected() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let url = start_mock(&rt);
-    let client = ascend_lite::backend::BackendClient::new(&url).unwrap();
+    let client = tracked::backend::BackendClient::new(&url).unwrap();
     let err = rt.block_on(client.friends()).unwrap_err();
-    assert!(matches!(err, ascend_lite::error::ApiError::Unauthorized));
+    assert!(matches!(err, tracked::error::ApiError::Unauthorized));
     // Public endpoints work without a token.
     assert!(rt.block_on(client.min_version()).is_ok());
 }

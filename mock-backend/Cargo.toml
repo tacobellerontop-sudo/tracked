@@ -2,7 +2,7 @@
 name = "mock-backend"
 version = "0.1.0"
 edition = "2021"
-description = "In-memory mock of the optional Ascend-Lite social/stats backend"
+description = "In-memory mock of the optional Tracked social/stats backend"
 license = "MIT"
 publish = false
 

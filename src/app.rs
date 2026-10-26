@@ -41,8 +41,8 @@ pub enum SocialTab {
     /// Riot friends + whispers (built in).
     #[default]
     Friends,
-    /// The optional Ascend backend.
-    Ascend,
+    /// The optional Tracked backend.
+    Tracked,
 }
 
 /// Built-in social: Riot friends, their live status, whispers.

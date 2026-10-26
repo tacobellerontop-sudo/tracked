@@ -79,7 +79,7 @@ Region/Shard enums → Hosts (regex-validated)                                  
       ▼
 PublicAuth::apply(): Authorization: Bearer, X-Riot-Entitlements-JWT,               auth.rs
   X-Riot-ClientPlatform (base64 platform JSON), X-Riot-ClientVersion
-  version: ASCEND_CLIENT_VERSION → valorant-api.com → ShooterGame.log; refreshed hourly  version.rs
+  version: TRACKED_CLIENT_VERSION → valorant-api.com → ShooterGame.log; refreshed hourly  version.rs
       │
       ▼
 RiotSession::send (session.rs): auth headers only to validated PD/GLZ hosts;
@@ -106,7 +106,7 @@ client.
 
 ## Optional backend (Phase 3)
 
-`backend/` talks to an Ascend-compatible backend at a configurable base URL, using its
+`backend/` talks to an Tracked-compatible backend at a configurable base URL, using its
 own bearer JWT (memory only). It has no reference to the Riot `Session`, so Riot
 credentials can't reach it. `worker/social.rs` owns the lifecycle:
 

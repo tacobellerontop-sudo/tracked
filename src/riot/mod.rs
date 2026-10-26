@@ -55,7 +55,7 @@ impl std::fmt::Display for RiotId {
 /// Uses normal certificate verification; never used for 127.0.0.1.
 pub fn public_http() -> reqwest::Client {
     reqwest::Client::builder()
-        .user_agent(concat!("ascend-lite/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("tracked/", env!("CARGO_PKG_VERSION")))
         .timeout(Duration::from_secs(15))
         .build()
         .expect("failed to build HTTP client")

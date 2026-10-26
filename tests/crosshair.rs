@@ -1,4 +1,4 @@
-use ascend_lite::crosshair::{fmt_num, CrosshairCode, CrosshairError};
+use tracked::crosshair::{fmt_num, CrosshairCode, CrosshairError};
 
 const SAMPLES: &[&str] = &[
     "0;P;c;5;h;0;0l;4;0o;2;0a;1;0f;0;1b;0",

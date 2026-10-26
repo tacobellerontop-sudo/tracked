@@ -3,7 +3,7 @@ members = [".", "mock-backend"]
 resolver = "2"
 
 [package]
-name = "ascend-lite"
+name = "tracked"
 version = "0.1.0"
 edition = "2021"
 description = "Lightweight, unofficial VALORANT companion (Riot local API + egui)"
@@ -11,11 +11,11 @@ license = "MIT"
 publish = false
 
 [lib]
-name = "ascend_lite"
+name = "tracked"
 path = "src/lib.rs"
 
 [[bin]]
-name = "ascend-lite"
+name = "tracked"
 path = "src/main.rs"
 
 [[bin]]
@@ -24,7 +24,7 @@ path = "src/bin/riot-probe.rs"
 
 [features]
 default = []
-# Dev/test only: lets ASCEND_FAKE_RIOT_BASE=https://127.0.0.1:<port> stand in
+# Dev/test only: lets TRACKED_FAKE_RIOT_BASE=https://127.0.0.1:<port> stand in
 # for Riot's PD/GLZ hosts so the whole worker can be tested end to end.
 # Never enable this in release builds.
 fake-riot = []

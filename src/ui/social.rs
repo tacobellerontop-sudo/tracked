@@ -36,7 +36,7 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
 
     match state.social.status.clone() {
         BackendStatus::Disabled => {
-            ui.label("Social features are off. They need an Ascend-compatible backend URL (Settings → Social).");
+            ui.label("Social features are off. They need an Tracked-compatible backend URL (Settings → Social).");
             if ui.button("Open Settings").clicked() {
                 state.screen = Screen::Settings;
             }

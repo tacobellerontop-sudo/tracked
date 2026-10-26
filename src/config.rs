@@ -53,6 +53,8 @@ pub struct Settings {
     pub renderer: RendererPref,
     /// Interface animations (page fades, sliding highlights, count-ups).
     pub animations: bool,
+    /// Use the OS title bar instead of the app's own (takes effect on restart).
+    pub system_title_bar: bool,
     /// GitHub "latest release" API URL (or any JSON with a `tag_name`).
     pub update_url: String,
 }
@@ -73,6 +75,7 @@ impl Default for Settings {
             check_for_updates: true,
             renderer: RendererPref::Auto,
             animations: true,
+            system_title_bar: false,
             update_url: DEFAULT_UPDATE_URL.to_string(),
         }
     }
@@ -88,29 +91,44 @@ impl Settings {
 }
 
 fn project_dirs() -> Option<directories::ProjectDirs> {
-    directories::ProjectDirs::from("dev", "ascend-lite", "ascend-lite")
+    directories::ProjectDirs::from("dev", "tracked", "tracked")
 }
 
 pub fn config_path() -> Option<PathBuf> {
-    if let Some(dir) = std::env::var_os("ASCEND_CONFIG_DIR") {
+    if let Some(dir) = std::env::var_os("TRACKED_CONFIG_DIR") {
         return Some(PathBuf::from(dir).join("settings.json"));
     }
     project_dirs().map(|d| d.config_dir().join("settings.json"))
 }
 
 pub fn cache_dir() -> Option<PathBuf> {
-    if let Some(dir) = std::env::var_os("ASCEND_CACHE_DIR") {
+    if let Some(dir) = std::env::var_os("TRACKED_CACHE_DIR") {
         return Some(PathBuf::from(dir));
     }
     project_dirs().map(|d| d.cache_dir().to_path_buf())
 }
 
-/// Load settings, falling back to defaults on any error.
+/// Load settings, falling back to defaults on any error. Settings saved
+/// under the app's old name (Ascend-Lite) are picked up once and then
+/// saved under the new one.
 pub fn load() -> Settings {
-    config_path()
-        .and_then(|p| std::fs::read_to_string(p).ok())
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+    let read = |p: PathBuf| {
+        std::fs::read_to_string(p)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+    };
+    if let Some(settings) = config_path().and_then(read) {
+        return settings;
+    }
+    if std::env::var_os("TRACKED_CONFIG_DIR").is_none() {
+        let legacy = directories::ProjectDirs::from("dev", "ascend-lite", "ascend-lite")
+            .map(|d| d.config_dir().join("settings.json"));
+        if let Some(settings) = legacy.and_then(read) {
+            let _ = save(&settings);
+            return settings;
+        }
+    }
+    Settings::default()
 }
 
 pub fn save(settings: &Settings) -> std::io::Result<()> {

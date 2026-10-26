@@ -11,9 +11,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use ascend_lite::diagnostics::{Step, StepState};
-use ascend_lite::riot::{self, lockfile, pd, RiotError, WatchEvent};
 use futures_util::StreamExt;
+use tracked::diagnostics::{Step, StepState};
+use tracked::riot::{self, lockfile, pd, RiotError, WatchEvent};
 
 fn stamp() -> String {
     chrono::Local::now().format("%H:%M:%S").to_string()
@@ -35,12 +35,12 @@ async fn main() {
     let once = args.iter().any(|a| a == "--once");
     if args.iter().any(|a| a == "--debug") {
         tracing_subscriber::fmt()
-            .with_env_filter(ascend_lite::logging::filter(true))
+            .with_env_filter(tracked::logging::filter(true))
             .with_writer(std::io::stderr)
             .init();
     }
     println!(
-        "Ascend-Lite riot-probe v{} — prints no passwords or tokens",
+        "Tracked riot-probe v{} — prints no passwords or tokens",
         env!("CARGO_PKG_VERSION")
     );
     let http = riot::public_http();
@@ -95,7 +95,7 @@ async fn main() {
                     latest.ranked_rating_after_update
                 );
             }
-            Err(ascend_lite::error::ApiError::NotFound) => {
+            Err(tracked::error::ApiError::NotFound) => {
                 println!("{} M2 ✓ PD answered (no ranked data on this account)", stamp())
             }
             Err(e) => println!("{} M2 ✗ PD call failed: {e}", stamp()),

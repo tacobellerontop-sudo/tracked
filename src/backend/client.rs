@@ -61,7 +61,7 @@ impl BackendClient {
         }
         let loopback = base.scheme() == "http";
         let mut builder = reqwest::Client::builder()
-            .user_agent(concat!("ascend-lite/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("tracked/", env!("CARGO_PKG_VERSION")))
             .timeout(Duration::from_secs(10));
         if loopback {
             builder = builder.no_proxy();

@@ -1,15 +1,17 @@
 // Release builds are a GUI app: no console window on Windows (logs go to the log file).
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use ascend_lite::config::{self, RendererPref, Settings};
-use ascend_lite::{app::App, ipc, logging, worker};
+use tracked::config::{self, RendererPref, Settings};
+use tracked::{app::App, ipc, logging, worker};
 
 fn options(settings: &Settings, renderer: eframe::Renderer) -> eframe::NativeOptions {
     eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("Ascend-Lite")
+            .with_title("Tracked")
             .with_inner_size(settings.window_size)
-            .with_min_inner_size([1000.0, 660.0]),
+            .with_min_inner_size([1000.0, 660.0])
+            // The app draws its own slim title bar unless the user opted out.
+            .with_decorations(settings.system_title_bar),
         renderer,
         vsync: true,
         ..Default::default()
@@ -18,12 +20,12 @@ fn options(settings: &Settings, renderer: eframe::Renderer) -> eframe::NativeOpt
 
 fn run(settings: Settings, demo: bool, renderer: eframe::Renderer) -> eframe::Result<()> {
     eframe::run_native(
-        "Ascend-Lite",
+        "Tracked",
         options(&settings, renderer),
         Box::new(move |cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
-            ascend_lite::ui::theme::install_fonts(&cc.egui_ctx);
-            let gpu = ascend_lite::ui::theme::describe_renderer(cc);
+            tracked::ui::theme::install_fonts(&cc.egui_ctx);
+            let gpu = tracked::ui::theme::describe_renderer(cc);
             tracing::info!(renderer = %gpu, "renderer ready");
             let (intent_tx, intent_rx, sink, update_rx) = ipc::channels(cc.egui_ctx.clone());
             let handle = worker::spawn_mode(intent_rx, sink, settings.clone(), demo);
@@ -37,7 +39,7 @@ fn main() -> eframe::Result<()> {
     let demo = std::env::args().any(|a| a == "--demo");
     let force_gl = std::env::args().any(|a| a == "--opengl");
     let _log_guard = logging::init(debug);
-    tracing::info!(version = env!("CARGO_PKG_VERSION"), "starting ascend-lite");
+    tracing::info!(version = env!("CARGO_PKG_VERSION"), "starting tracked");
 
     let settings = config::load();
     if force_gl || settings.renderer == RendererPref::OpenGl {

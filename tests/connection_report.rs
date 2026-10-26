@@ -4,15 +4,15 @@ mod common;
 
 use std::time::{Duration, Instant};
 
-use ascend_lite::diagnostics::{ConnectionReport, Step, StepState};
-use ascend_lite::ipc::{self, Intent, Update};
+use tracked::diagnostics::{ConnectionReport, Step, StepState};
+use tracked::ipc::{self, Intent, Update};
 
 fn run_until(lockfile: std::path::PathBuf, done: impl Fn(&ConnectionReport) -> bool) -> ConnectionReport {
-    std::env::set_var("ASCEND_LOCKFILE", lockfile);
-    std::env::set_var("ASCEND_OFFLINE_CONTENT", "1");
-    std::env::set_var("ASCEND_CLIENT_VERSION", common::CLIENT_VERSION);
+    std::env::set_var("TRACKED_LOCKFILE", lockfile);
+    std::env::set_var("TRACKED_OFFLINE_CONTENT", "1");
+    std::env::set_var("TRACKED_CLIENT_VERSION", common::CLIENT_VERSION);
     let (tx, rx, sink, updates) = ipc::channels(egui::Context::default());
-    let handle = ascend_lite::worker::spawn(rx, sink, Default::default());
+    let handle = tracked::worker::spawn(rx, sink, Default::default());
     let deadline = Instant::now() + Duration::from_secs(10);
     let mut last = ConnectionReport::default();
     while Instant::now() < deadline {

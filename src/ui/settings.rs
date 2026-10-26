@@ -44,6 +44,11 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
             });
             ui.end_row();
 
+            ui.label("Window");
+            ui.checkbox(&mut state.settings.system_title_bar, "Use the system title bar")
+                .on_hover_text("Takes effect after a restart.");
+            ui.end_row();
+
             ui.label("Live polling interval");
             ui.add(
                 egui::Slider::new(&mut state.settings.poll_interval_secs, MIN_POLL_SECS..=MAX_POLL_SECS).suffix(" s"),
@@ -68,7 +73,7 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
     ui.separator();
     ui.label(egui::RichText::new("About").strong());
     ui.horizontal(|ui| {
-        ui.label(format!("Ascend-Lite v{}", env!("CARGO_PKG_VERSION")));
+        ui.label(format!("Tracked v{}", env!("CARGO_PKG_VERSION")));
         if ui.small_button("Check for updates").clicked() {
             intents.send(Intent::CheckForUpdates);
         }
@@ -99,9 +104,9 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
 }
 
 fn social_settings(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
-    ui.label(egui::RichText::new("Ascend backend (optional)").strong());
+    ui.label(egui::RichText::new("Tracked backend (optional)").strong());
     ui.weak(
-        "Your Riot friends and whispers work without this (Social tab). A backend adds Ascend-only \
+        "Your Riot friends and whispers work without this (Social tab). A backend adds Tracked-only \
          friends, lobbies and DMs. Riot credentials are never sent to the backend.",
     );
     ui.horizontal(|ui| {

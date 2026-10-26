@@ -13,6 +13,7 @@ pub mod pages;
 pub mod settings;
 pub mod social;
 pub mod theme;
+pub mod titlebar;
 pub mod widgets;
 
 use egui::{pos2, vec2, Align, Align2, Color32, CornerRadius, FontId, Layout, Rect, RichText, Sense, Shape, Stroke};
@@ -24,10 +25,10 @@ use crate::ipc::{BackendStatus, ClientStatus, Intent, IntentTx};
 use icons::Icon;
 use theme::pal;
 
-pub const DISCLAIMER: &str = "Ascend-Lite is an unofficial third-party tool. It is not affiliated with, \
+pub const DISCLAIMER: &str = "Tracked is an unofficial third-party tool. It is not affiliated with, \
 endorsed, sponsored or approved by Riot Games. VALORANT and Riot Games are trademarks of Riot Games, Inc. \
 You use this app at your own risk and remain subject to Riot's Terms of Service.\n\n\
-Ascend-Lite only uses the Riot Client's local API and Riot's web endpoints with tokens the client issued. \
+Tracked only uses the Riot Client's local API and Riot's web endpoints with tokens the client issued. \
 It never reads game memory, never injects into or modifies any Riot process, and never automates gameplay.";
 
 const NAV: &[(Screen, &str, Icon, egui::Key)] = &[
@@ -44,6 +45,10 @@ const NAV: &[(Screen, &str, Icon, egui::Key)] = &[
 const SIDEBAR_W: f32 = 210.0;
 
 pub fn draw(ctx: &egui::Context, state: &mut AppState, intents: &IntentTx) {
+    let full_layout = state.settings.disclaimer_accepted
+        && !matches!(state.social.min_version, MinVersionState::Blocked { .. })
+        && state.startup_done;
+    titlebar::show(ctx, state, if full_layout { SIDEBAR_W } else { 0.0 });
     if !state.settings.disclaimer_accepted {
         egui::CentralPanel::default().show(ctx, |ui| disclaimer(ui, state, intents));
         return;
@@ -74,7 +79,7 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState, intents: &IntentTx) {
         .frame(egui::Frame::NONE.fill(p.sidebar).inner_margin(egui::Margin {
             left: 16,
             right: 16,
-            top: 22,
+            top: if titlebar::enabled(state) { 8 } else { 22 },
             bottom: 16,
         }))
         .show(ctx, |ui| sidebar(ui, state, &visible));
@@ -82,7 +87,7 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState, intents: &IntentTx) {
         .frame(egui::Frame::NONE.fill(p.bg).inner_margin(egui::Margin {
             left: 24,
             right: 24,
-            top: 18,
+            top: if titlebar::enabled(state) { 4 } else { 18 },
             bottom: 0,
         }))
         .show(ctx, |ui| {
@@ -130,13 +135,18 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState, intents: &IntentTx) {
 
 fn sidebar(ui: &mut egui::Ui, state: &mut AppState, visible: &dyn Fn(&Screen) -> bool) {
     let p = pal(ui.ctx());
-    ui.horizontal(|ui| {
-        let (r, _) = ui.allocate_exact_size(vec2(30.0, 30.0), Sense::hover());
-        icons::logo(ui.painter(), r, p.accent);
+    if titlebar::enabled(state) {
+        // The app mark and name live in the title bar.
         ui.add_space(4.0);
-        ui.label(RichText::new("A S C E N D").font(theme::semibold(13.0)).color(p.text));
-    });
-    ui.add_space(30.0);
+    } else {
+        ui.horizontal(|ui| {
+            let (r, _) = ui.allocate_exact_size(vec2(30.0, 30.0), Sense::hover());
+            icons::logo(ui.painter(), r, p.accent);
+            ui.add_space(4.0);
+            ui.label(RichText::new("T R A C K E D").font(theme::semibold(13.0)).color(p.text));
+        });
+        ui.add_space(30.0);
+    }
 
     // The selected-item highlight is painted first (into a reserved slot)
     // and glides to the selected item.
@@ -392,7 +402,7 @@ fn update_required(
         ui.heading("Update required");
         ui.add_space(8.0);
         ui.label(format!(
-            "The configured backend requires Ascend-Lite v{required} or newer. You're running v{}.",
+            "The configured backend requires Tracked v{required} or newer. You're running v{}.",
             env!("CARGO_PKG_VERSION")
         ));
         if let Some(url) = download_url {
@@ -469,7 +479,7 @@ fn disclaimer_body(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) 
     });
 }
 
-/// Social: built-in Riot friends and whispers, plus the optional Ascend backend tab.
+/// Social: built-in Riot friends and whispers, plus the optional Tracked backend tab.
 fn social_screen(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
     let backend_on = state.social.status != BackendStatus::Disabled;
     if !backend_on {
@@ -477,7 +487,7 @@ fn social_screen(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
     }
     if backend_on {
         ui.horizontal(|ui| {
-            for (tab, label) in [(SocialTab::Friends, "Riot friends"), (SocialTab::Ascend, "Ascend")] {
+            for (tab, label) in [(SocialTab::Friends, "Riot friends"), (SocialTab::Tracked, "Tracked")] {
                 if theme::pill(ui, label, state.riot_social.tab == tab).clicked() {
                     state.riot_social.tab = tab;
                 }
@@ -487,6 +497,6 @@ fn social_screen(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
     }
     match state.riot_social.tab {
         SocialTab::Friends => theme::card(ui, None, |ui| friends::ui(ui, state, intents)),
-        SocialTab::Ascend => theme::card(ui, None, |ui| social::ui(ui, state, intents)),
+        SocialTab::Tracked => theme::card(ui, None, |ui| social::ui(ui, state, intents)),
     }
 }

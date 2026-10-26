@@ -1,4 +1,4 @@
-//! Ascend-Lite: an unofficial, read-only VALORANT companion.
+//! Tracked: an unofficial, read-only VALORANT companion.
 //!
 //! The crate is split into a UI half (`app`, `ui`) that runs on the egui
 //! thread and a worker half (`worker`, `riot`, `content`) that runs on a

@@ -12,9 +12,9 @@ use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use ascend_lite::config::Settings;
-use ascend_lite::ipc::{self, ClientStatus, Intent, Update};
-use ascend_lite::riot::models::LivePhase;
+use tracked::config::Settings;
+use tracked::ipc::{self, ClientStatus, Intent, Update};
+use tracked::riot::models::LivePhase;
 
 #[derive(Clone, Default)]
 struct Buf(Arc<Mutex<Vec<u8>>>);
@@ -33,7 +33,7 @@ impl Write for Buf {
 fn worker_end_to_end() {
     let logs = Buf::default();
     let writer = logs.clone();
-    let filter = ascend_lite::logging::filter(true).add_directive("ascend_lite=trace".parse().unwrap());
+    let filter = tracked::logging::filter(true).add_directive("tracked=trace".parse().unwrap());
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_writer(move || writer.clone())
@@ -42,13 +42,13 @@ fn worker_end_to_end() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let port = rt.block_on(common::start());
     let tmp = std::env::temp_dir().join(format!("ascend-e2e-{}", std::process::id()));
-    std::env::set_var("ASCEND_LOCKFILE", common::write_lockfile(port, common::PASSWORD));
-    std::env::set_var("ASCEND_CLIENT_VERSION", common::CLIENT_VERSION);
+    std::env::set_var("TRACKED_LOCKFILE", common::write_lockfile(port, common::PASSWORD));
+    std::env::set_var("TRACKED_CLIENT_VERSION", common::CLIENT_VERSION);
     // Keep tests off the internet (valorant-api.com would change the current act).
-    std::env::set_var("ASCEND_OFFLINE_CONTENT", "1");
-    std::env::set_var("ASCEND_FAKE_RIOT_BASE", format!("https://127.0.0.1:{port}"));
-    std::env::set_var("ASCEND_CACHE_DIR", tmp.join("cache"));
-    std::env::set_var("ASCEND_CONFIG_DIR", tmp.join("cfg"));
+    std::env::set_var("TRACKED_OFFLINE_CONTENT", "1");
+    std::env::set_var("TRACKED_FAKE_RIOT_BASE", format!("https://127.0.0.1:{port}"));
+    std::env::set_var("TRACKED_CACHE_DIR", tmp.join("cache"));
+    std::env::set_var("TRACKED_CONFIG_DIR", tmp.join("cfg"));
 
     let (tx, rx, sink, updates) = ipc::channels(egui::Context::default());
     let settings = Settings {
@@ -56,7 +56,7 @@ fn worker_end_to_end() {
         poll_interval_secs: 3,
         ..Default::default()
     };
-    let handle = ascend_lite::worker::spawn(rx, sink, settings);
+    let handle = tracked::worker::spawn(rx, sink, settings);
 
     let mut authed = false;
     let mut career = None;
@@ -64,9 +64,9 @@ fn worker_end_to_end() {
     let mut live = None;
     let mut probes: HashMap<String, u32> = HashMap::new();
     let mut names: HashMap<String, String> = HashMap::new();
-    let mut report = ascend_lite::diagnostics::ConnectionReport::default();
+    let mut report = tracked::diagnostics::ConnectionReport::default();
     let deadline = Instant::now() + Duration::from_secs(20);
-    let done = |live: &Option<ascend_lite::riot::models::LiveMatch>, probes: &HashMap<String, u32>| {
+    let done = |live: &Option<tracked::riot::models::LiveMatch>, probes: &HashMap<String, u32>| {
         live.as_ref()
             .is_some_and(|m| m.phase == LivePhase::InGame && probes.len() == 10)
     };
@@ -97,7 +97,7 @@ fn worker_end_to_end() {
     assert!(report.connected(), "{}", report.to_text(None));
     for (step, state) in &report.steps {
         assert!(
-            matches!(state, ascend_lite::diagnostics::StepState::Ok(_)),
+            matches!(state, tracked::diagnostics::StepState::Ok(_)),
             "{step:?}: {state:?}"
         );
     }

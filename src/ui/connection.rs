@@ -40,7 +40,7 @@ pub fn startup(ctx: &egui::Context, state: &mut AppState, intents: &IntentTx) {
                     ui.horizontal(|ui| {
                         let (r, _) = ui.allocate_exact_size(egui::vec2(34.0, 34.0), egui::Sense::hover());
                         super::icons::logo(ui.painter(), r, p.accent);
-                        ui.label(RichText::new("A S C E N D").size(18.0).color(p.text));
+                        ui.label(RichText::new("T R A C K E D").size(18.0).color(p.text));
                     });
                     ui.add_space(14.0);
                     let (headline, color) = headline(state);

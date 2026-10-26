@@ -1,9 +1,9 @@
-use ascend_lite::ipc::UpdateStatus;
-use ascend_lite::riot::glz::{party_to_live, pregame_to_live, RawParty, RawPregame};
-use ascend_lite::riot::models::{LivePhase, PlayerMmr};
-use ascend_lite::riot::pd::{is_uuid, rank_snapshot};
-use ascend_lite::worker::tasks::compare_release;
 use serde_json::json;
+use tracked::ipc::UpdateStatus;
+use tracked::riot::glz::{party_to_live, pregame_to_live, RawParty, RawPregame};
+use tracked::riot::models::{LivePhase, PlayerMmr};
+use tracked::riot::pd::{is_uuid, rank_snapshot};
+use tracked::worker::tasks::compare_release;
 
 fn mmr() -> PlayerMmr {
     serde_json::from_value(json!({

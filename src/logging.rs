@@ -25,7 +25,7 @@ pub fn init(debug: bool) -> Option<tracing_appender::non_blocking::WorkerGuard> 
     let file = crate::config::cache_dir().and_then(|dir| {
         tracing_appender::rolling::Builder::new()
             .rotation(tracing_appender::rolling::Rotation::DAILY)
-            .filename_prefix("ascend-lite")
+            .filename_prefix("tracked")
             .filename_suffix("log")
             .max_log_files(5)
             .build(dir.join("logs"))

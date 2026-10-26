@@ -96,7 +96,7 @@ impl Ctx {
 /// Load valorant-api content, publish it, then cache icons and republish.
 pub async fn load_content(ctx: Arc<Ctx>) {
     // Offline mode (tests, air-gapped use): names fall back to ids, no artwork.
-    if std::env::var_os("ASCEND_OFFLINE_CONTENT").is_some() {
+    if std::env::var_os("TRACKED_OFFLINE_CONTENT").is_some() {
         return;
     }
     match valorant_api::fetch_catalog(&ctx.http).await {
@@ -217,7 +217,7 @@ async fn profile(ctx: &Arc<Ctx>, id: &pd::LoadoutIdentity) -> crate::ipc::Profil
         account_level: (!id.hide_account_level && id.account_level > 0).then_some(id.account_level),
         ..Default::default()
     };
-    if std::env::var_os("ASCEND_OFFLINE_CONTENT").is_some() {
+    if std::env::var_os("TRACKED_OFFLINE_CONTENT").is_some() {
         return p;
     }
     if pd::is_uuid(&id.player_card_id) {

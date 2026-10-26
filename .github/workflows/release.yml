@@ -1,6 +1,6 @@
 name: Windows build
 
-# Every push builds ascend-lite.exe and uploads it as a workflow artifact.
+# Every push builds tracked.exe and uploads it as a workflow artifact.
 # Pushing a tag like v0.1.0, or running it by hand with a version, also
 # publishes a GitHub Release (the tag is created on the built commit).
 on:
@@ -33,17 +33,17 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          Copy-Item target/release/ascend-lite.exe dist/
+          Copy-Item target/release/tracked.exe dist/
           Copy-Item target/release/riot-probe.exe dist/
           Copy-Item target/release/mock-backend.exe dist/
           Copy-Item README.md dist/
-          Compress-Archive -Path dist/* -DestinationPath ascend-lite-windows-x64.zip -Force
+          Compress-Archive -Path dist/* -DestinationPath tracked-windows-x64.zip -Force
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ascend-lite-windows-x64
+          name: tracked-windows-x64
           path: |
-            dist/ascend-lite.exe
+            dist/tracked.exe
             dist/riot-probe.exe
             dist/mock-backend.exe
             dist/README.md
@@ -52,9 +52,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.version || github.ref_name }}
-          name: Ascend-Lite ${{ inputs.version || github.ref_name }}
+          name: Tracked ${{ inputs.version || github.ref_name }}
           target_commitish: ${{ github.sha }}
           files: |
-            ascend-lite-windows-x64.zip
-            dist/ascend-lite.exe
+            tracked-windows-x64.zip
+            dist/tracked.exe
           generate_release_notes: true

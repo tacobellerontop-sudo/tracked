@@ -8,9 +8,9 @@ use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use ascend_lite::riot::{self, lockfile};
 use base64::Engine;
 use futures_util::StreamExt;
+use tracked::riot::{self, lockfile};
 
 #[derive(Clone, Default)]
 struct Buf(Arc<Mutex<Vec<u8>>>);
@@ -29,24 +29,24 @@ impl Write for Buf {
 async fn sample_run_never_logs_secrets() {
     let buf = Buf::default();
     let writer = buf.clone();
-    let filter = ascend_lite::logging::filter(true).add_directive("ascend_lite=trace".parse().unwrap());
+    let filter = tracked::logging::filter(true).add_directive("tracked=trace".parse().unwrap());
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_writer(move || writer.clone())
         .init();
 
     let port = common::start().await;
-    std::env::set_var("ASCEND_LOCKFILE", common::write_lockfile(port, common::PASSWORD));
-    std::env::set_var("ASCEND_CLIENT_VERSION", common::CLIENT_VERSION);
-    std::env::set_var("ASCEND_FAKE_RIOT_BASE", format!("https://127.0.0.1:{port}"));
+    std::env::set_var("TRACKED_LOCKFILE", common::write_lockfile(port, common::PASSWORD));
+    std::env::set_var("TRACKED_CLIENT_VERSION", common::CLIENT_VERSION);
+    std::env::set_var("TRACKED_FAKE_RIOT_BASE", format!("https://127.0.0.1:{port}"));
 
     let lock = lockfile::read().await.unwrap();
-    tracing::debug!(target: "ascend_lite", ?lock, "lockfile loaded");
+    tracing::debug!(target: "tracked", ?lock, "lockfile loaded");
     let session = std::sync::Arc::new(riot::connect().await.unwrap());
-    tracing::debug!(target: "ascend_lite", ?session, "session established");
-    tracing::debug!(target: "ascend_lite", public = ?session.public().await, auth = ?session.local_auth(), "auth");
+    tracing::debug!(target: "tracked", ?session, "session established");
+    tracing::debug!(target: "tracked", public = ?session.public().await, auth = ?session.local_auth(), "auth");
     let _ = session.local.presences().await;
-    let _ = ascend_lite::riot::pd::player_mmr(&session, &session.puuid).await;
+    let _ = tracked::riot::pd::player_mmr(&session, &session.puuid).await;
 
     // The websocket (its handshake carries the basic-auth header).
     let mut events = Box::pin(riot::watch(session.clone()));
@@ -57,11 +57,11 @@ async fn sample_run_never_logs_secrets() {
 
     // Also exercise the error path with a bad password.
     std::env::set_var(
-        "ASCEND_LOCKFILE",
+        "TRACKED_LOCKFILE",
         common::write_lockfile(port, &format!("{}X", common::PASSWORD)),
     );
     let err = riot::connect().await.unwrap_err();
-    tracing::warn!(target: "ascend_lite", "expected failure: {err} / {err:?}");
+    tracing::warn!(target: "tracked", "expected failure: {err} / {err:?}");
 
     let logs = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
     assert!(logs.contains("session established"), "logging was not captured");

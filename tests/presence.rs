@@ -1,5 +1,5 @@
-use ascend_lite::riot::presence::{decode_private, presences_from_event, LoopState};
 use base64::Engine;
+use tracked::riot::presence::{decode_private, presences_from_event, LoopState};
 
 fn b64(v: serde_json::Value) -> String {
     base64::engine::general_purpose::STANDARD.encode(v.to_string())
@@ -56,7 +56,7 @@ fn parses_event_frames() {
 
 #[test]
 fn canned_frames_map_to_game_states() {
-    use ascend_lite::riot::presence::own_presence;
+    use tracked::riot::presence::own_presence;
     let frame = |state: &str| {
         let blob = b64(
             serde_json::json!({ "matchPresenceData": { "sessionLoopState": state }, "partyPresenceData": { "partySize": 1 } }),
@@ -75,7 +75,7 @@ fn canned_frames_map_to_game_states() {
         assert!(own_presence(&list, "someone-else").is_none());
     }
     // GameState carries the loop state through.
-    use ascend_lite::riot::GameState;
+    use tracked::riot::GameState;
     assert_eq!(
         GameState::PreGame { match_id: "m".into() }.loop_state(),
         LoopState::Pregame

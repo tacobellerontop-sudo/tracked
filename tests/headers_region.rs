@@ -1,10 +1,10 @@
-use ascend_lite::riot::auth::{client_platform_header, PublicAuth, CLIENT_PLATFORM_JSON};
-use ascend_lite::riot::region::{
+use base64::Engine;
+use tracked::riot::auth::{client_platform_header, PublicAuth, CLIENT_PLATFORM_JSON};
+use tracked::riot::region::{
     from_launch_args, is_riot_api_host, is_valid_glz_host, region_from_launch_args, shard_from_launch_args,
 };
-use ascend_lite::riot::{Hosts, Region, Shard};
-use ascend_lite::secret::Secret;
-use base64::Engine;
+use tracked::riot::{Hosts, Region, Shard};
+use tracked::secret::Secret;
 
 #[test]
 fn platform_header_decodes_to_the_exact_json() {
@@ -146,8 +146,8 @@ fn region_hints_cover_riot_naming() {
 fn ci_version_from_log() {
     let log = "[2026.10.01] LogInit: Build: ++Ares-Core+release-09.05\n[..] LogShooter: Display: CI server version: release-09.05-shipping-21-2843553\n";
     assert_eq!(
-        ascend_lite::riot::parse_ci_version(log).as_deref(),
+        tracked::riot::parse_ci_version(log).as_deref(),
         Some("release-09.05-shipping-21-2843553")
     );
-    assert_eq!(ascend_lite::riot::parse_ci_version("nothing"), None);
+    assert_eq!(tracked::riot::parse_ci_version("nothing"), None);
 }

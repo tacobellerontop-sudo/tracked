@@ -1,8 +1,8 @@
 //! Stat derivations against a tiny hand-computed 2v2, 3-round match.
 
-use ascend_lite::riot::match_stats::normalize;
-use ascend_lite::riot::models::{Outcome, RawMatch};
 use serde_json::json;
+use tracked::riot::match_stats::normalize;
+use tracked::riot::models::{Outcome, RawMatch};
 
 fn kill(t: u64, killer: &str, victim: &str, assists: &[&str]) -> serde_json::Value {
     json!({ "roundTime": t, "killer": killer, "victim": victim, "assistants": assists })
@@ -148,7 +148,7 @@ fn multikills_and_aces() {
 fn empty_match_does_not_panic() {
     let m = normalize(&RawMatch::default());
     assert!(m.players.is_empty());
-    let s = ascend_lite::riot::models::PlayerStats::default();
+    let s = tracked::riot::models::PlayerStats::default();
     assert_eq!(
         (s.kd(), s.adr(), s.hs_pct(), s.kast_pct(), s.acs()),
         (0.0, 0.0, 0.0, 0.0, 0.0)

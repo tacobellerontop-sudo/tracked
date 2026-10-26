@@ -7,11 +7,11 @@ use super::error::RiotError;
 /// Refetch the version at least this often while running.
 pub const MAX_AGE: Duration = Duration::from_secs(60 * 60);
 
-/// The current client version: `ASCEND_CLIENT_VERSION` (development
+/// The current client version: `TRACKED_CLIENT_VERSION` (development
 /// override), then valorant-api.com, then the "CI server version" line in
 /// VALORANT's own log file.
 pub async fn fetch(http: &reqwest::Client) -> Result<String, RiotError> {
-    if let Ok(v) = std::env::var("ASCEND_CLIENT_VERSION") {
+    if let Ok(v) = std::env::var("TRACKED_CLIENT_VERSION") {
         return Ok(v);
     }
     match crate::content::valorant_api::client_version(http).await {

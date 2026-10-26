@@ -61,10 +61,10 @@ pub fn parse(contents: &str) -> Result<Lockfile, LockfileError> {
     })
 }
 
-/// Where the lockfile lives. `ASCEND_LOCKFILE` overrides it (for development
+/// Where the lockfile lives. `TRACKED_LOCKFILE` overrides it (for development
 /// and tests); otherwise `%LOCALAPPDATA%\Riot Games\Riot Client\Config\lockfile`.
 pub fn default_path() -> Option<PathBuf> {
-    if let Some(p) = std::env::var_os("ASCEND_LOCKFILE") {
+    if let Some(p) = std::env::var_os("TRACKED_LOCKFILE") {
         return Some(PathBuf::from(p));
     }
     let local = std::env::var_os("LOCALAPPDATA")

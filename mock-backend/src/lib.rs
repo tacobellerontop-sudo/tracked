@@ -1,4 +1,4 @@
-//! An in-memory mock of the optional Ascend-Lite backend, implementing the
+//! An in-memory mock of the optional Tracked backend, implementing the
 //! contract the app's `backend/` client speaks:
 //!
 //! * auth: `POST /api/auth/dev-login` issues an HS256 JWT; every other route

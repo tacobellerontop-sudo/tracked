@@ -1,4 +1,4 @@
-//! Optional Ascend-style backend (Phase 3): social features, presence,
+//! Optional Tracked-style backend (Phase 3): social features, presence,
 //! lobbies, DMs, version gate. Entirely off unless a backend URL is set.
 //!
 //! The backend never receives Riot credentials: this module has no access to

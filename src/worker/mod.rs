@@ -46,12 +46,12 @@ pub fn spawn(intents: IntentRx, sink: UpdateSink, settings: Settings) -> JoinHan
 /// Like [`spawn`]; with `demo` the worker serves synthetic data instead.
 pub fn spawn_mode(intents: IntentRx, sink: UpdateSink, settings: Settings, demo: bool) -> JoinHandle<()> {
     std::thread::Builder::new()
-        .name("ascend-worker".into())
+        .name("tracked-worker".into())
         .spawn(move || {
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
                 .enable_all()
-                .thread_name("ascend-rt")
+                .thread_name("tracked-rt")
                 .build()
                 .expect("failed to build tokio runtime");
             if demo {

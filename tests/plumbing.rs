@@ -1,14 +1,14 @@
 use std::time::{Duration, Instant};
 
-use ascend_lite::ipc::{self, Intent, Update};
+use tracked::ipc::{self, Intent, Update};
 
 #[test]
 fn ping_round_trips_through_worker() {
-    std::env::set_var("ASCEND_LOCKFILE", "/nonexistent/ascend-test/lockfile");
+    std::env::set_var("TRACKED_LOCKFILE", "/nonexistent/ascend-test/lockfile");
     // Keep tests off the internet (valorant-api.com would change the current act).
-    std::env::set_var("ASCEND_OFFLINE_CONTENT", "1");
+    std::env::set_var("TRACKED_OFFLINE_CONTENT", "1");
     let (tx, rx, sink, updates) = ipc::channels(egui::Context::default());
-    let handle = ascend_lite::worker::spawn(rx, sink, Default::default());
+    let handle = tracked::worker::spawn(rx, sink, Default::default());
     tx.send(Intent::Ping(42));
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut saw_status = false;
