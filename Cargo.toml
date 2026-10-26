@@ -1,0 +1,33 @@
+[workspace]
+members = ["."]
+resolver = "2"
+
+[package]
+name = "ascend-lite"
+version = "0.1.0"
+edition = "2021"
+description = "Lightweight, unofficial VALORANT companion (Riot local API + egui)"
+license = "MIT"
+publish = false
+
+[lib]
+name = "ascend_lite"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ascend-lite"
+path = "src/main.rs"
+
+[dependencies]
+eframe = "0.31"
+egui = "0.31"
+egui_extras = { version = "0.31", features = ["file", "http", "image"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "net"] }
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "test-util"] }
