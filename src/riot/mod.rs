@@ -61,6 +61,28 @@ impl Session {
         let local = LocalClient::new(lock)?;
         let ent = local.entitlements().await?;
         let region = detect_region(&local).await?;
+        let riot_id = local
+            .chat_session()
+            .await
+            .ok()
+            .filter(|c| !c.game_name.is_empty())
+            .map(|c| RiotId {
+                game_name: c.game_name,
+                tag_line: c.game_tag,
+            });
+        Self::from_parts(local, ent, region, riot_id, http, client_version)
+    }
+
+    /// Assemble a session from steps the caller already ran (the startup
+    /// checklist runs them one at a time so it can report each).
+    pub fn from_parts(
+        local: LocalClient,
+        ent: local::EntitlementsResponse,
+        region: Region,
+        riot_id: Option<RiotId>,
+        http: reqwest::Client,
+        client_version: String,
+    ) -> Result<Self, ApiError> {
         // Under the test-only fake backend, PD/GLZ live on loopback with a
         // self-signed cert, so use the loopback-only TLS client for them.
         let http = if region.fake_base.is_some() {
@@ -68,11 +90,6 @@ impl Session {
         } else {
             http
         };
-        let chat = local.chat_session().await.ok();
-        let riot_id = chat.filter(|c| !c.game_name.is_empty()).map(|c| RiotId {
-            game_name: c.game_name,
-            tag_line: c.game_tag,
-        });
         tracing::info!(region = %region.region, shard = %region.shard, "riot session established");
         Ok(Self {
             region,
@@ -186,26 +203,43 @@ fn local_http() -> Result<reqwest::Client, ApiError> {
         .map_err(|e| ApiError::Other(e.to_string()))
 }
 
-/// Region from VALORANT's launch args, falling back to the client's region.
-async fn detect_region(local: &LocalClient) -> Result<Region, ApiError> {
+/// Where a detected region came from (shown on the startup screen).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegionSource {
+    LaunchArgs,
+    ClientRegion,
+    ChatSession,
+}
+
+/// Region from VALORANT's launch args (most reliable), then the Riot
+/// Client's own region, then the chat session's region.
+pub async fn detect_region(local: &LocalClient) -> Result<Region, ApiError> {
+    detect_region_with_source(local).await.map(|(r, _)| r)
+}
+
+pub async fn detect_region_with_source(local: &LocalClient) -> Result<(Region, RegionSource), ApiError> {
     if let Ok(sessions) = local.external_sessions().await {
-        let from_args = sessions
-            .values()
-            .filter(|s| s.product_id == "valorant")
-            .find_map(|s| region::region_from_launch_args(&s.launch_configuration.arguments));
-        if let Some(r) = from_args {
-            if let Ok(region) = Region::new(&r) {
-                return Ok(region);
+        for s in sessions.values().filter(|s| s.product_id == "valorant") {
+            let args = &s.launch_configuration.arguments;
+            let hint = region::region_from_launch_args(args).or_else(|| region::shard_from_launch_args(args));
+            if let Some(region) = hint.and_then(|h| region::region_from_hint(&h)) {
+                return Ok((Region::new(&region)?, RegionSource::LaunchArgs));
             }
         }
     }
-    let rl = local.region_locale().await.map_err(|_| ApiError::RegionUnknown)?;
-    let candidate = if rl.web_region.is_empty() {
-        rl.region
-    } else {
-        rl.web_region
-    };
-    Region::new(&candidate)
+    if let Ok(rl) = local.region_locale().await {
+        for hint in [&rl.web_region, &rl.region] {
+            if let Some(region) = region::region_from_hint(hint) {
+                return Ok((Region::new(&region)?, RegionSource::ClientRegion));
+            }
+        }
+    }
+    if let Ok(chat) = local.chat_session().await {
+        if let Some(region) = region::region_from_hint(&chat.region) {
+            return Ok((Region::new(&region)?, RegionSource::ChatSession));
+        }
+    }
+    Err(ApiError::RegionUnknown)
 }
 
 /// Read the client version from `%LOCALAPPDATA%\VALORANT\Saved\Logs\ShooterGame.log`.

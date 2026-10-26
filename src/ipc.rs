@@ -141,6 +141,8 @@ pub enum BackendStatus {
 pub enum Update {
     Pong(u64),
     ClientStatus(ClientStatus),
+    /// Step-by-step connection checklist for the startup screen.
+    Connection(crate::diagnostics::ConnectionReport),
     Content(Arc<Catalog>),
     /// Our own presence (menus / agent select / in game), `None` if unknown.
     Game(Option<GamePresence>),

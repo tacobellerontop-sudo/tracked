@@ -92,6 +92,33 @@ pub fn is_riot_api_host(host: &str) -> bool {
     pd_regex().is_match(host) || is_valid_glz_host(host)
 }
 
+/// Map the many ways Riot names a region ("EUW", "eu3", "oc1", "LA1", "NA",
+/// "shared.eu.a.pvp.net" shard names…) onto a VALORANT region.
+pub fn region_from_hint(hint: &str) -> Option<String> {
+    let h = hint.trim().to_ascii_lowercase();
+    let h = h.trim_end_matches(|c: char| c.is_ascii_digit());
+    let r = match h {
+        "na" | "pbe" => "na",
+        "eu" | "euw" | "eune" | "tr" | "ru" | "me" => "eu",
+        "ap" | "oc" | "oce" | "jp" | "sg" | "ph" | "th" | "tw" | "vn" | "sea" => "ap",
+        "kr" => "kr",
+        "br" => "br",
+        "latam" | "la" | "lan" | "las" => "latam",
+        _ => return None,
+    };
+    Some(r.to_string())
+}
+
+/// `-config-endpoint=https://shared.<shard>.a.pvp.net` -> shard.
+pub fn shard_from_launch_args<S: AsRef<str>>(args: &[S]) -> Option<String> {
+    args.iter().find_map(|a| {
+        let url = a.as_ref().strip_prefix("-config-endpoint=")?;
+        let host = url.trim_start_matches("https://").split('/').next()?;
+        let shard = host.strip_prefix("shared.")?.strip_suffix(".a.pvp.net")?;
+        Some(shard.to_ascii_lowercase())
+    })
+}
+
 /// Pull `-ares-deployment=<region>` out of VALORANT's launch arguments.
 pub fn region_from_launch_args<S: AsRef<str>>(args: &[S]) -> Option<String> {
     args.iter()

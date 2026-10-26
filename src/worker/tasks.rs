@@ -148,11 +148,31 @@ async fn career_inner(ctx: &Arc<Ctx>) -> Result<(), ApiError> {
         pd::competitive_updates(&s, &s.puuid, 20),
         pd::match_history(&s, &s.puuid, 0, CAREER_MATCHES),
     );
-    let history = history?;
+    // Show whatever loaded: a failed rank lookup shouldn't hide match history
+    // (or the other way round). Failures are still reported.
+    let history = match (history, &mmr) {
+        (Err(e), Err(_)) => return Err(e),
+        (h, _) => h,
+    };
+    let history = history.unwrap_or_else(|e| {
+        tracing::warn!("match history failed: {e}");
+        ctx.sink.send(Update::Error(UserFacingError(format!(
+            "Couldn't load match history: {}",
+            UserFacingError::from(&e)
+        ))));
+        Default::default()
+    });
     let rank = match mmr {
         Ok(m) => pd::rank_snapshot(&m, act.as_deref()),
         Err(ApiError::NotFound) => Default::default(),
-        Err(e) => return Err(e),
+        Err(e) => {
+            tracing::warn!("rank lookup failed: {e}");
+            ctx.sink.send(Update::Error(UserFacingError(format!(
+                "Couldn't load your rank: {}",
+                UserFacingError::from(&e)
+            ))));
+            Default::default()
+        }
     };
     let mut rr_history: Vec<RrPoint> = updates
         .map(|u| u.matches)

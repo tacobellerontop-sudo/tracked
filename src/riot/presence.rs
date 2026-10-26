@@ -104,17 +104,19 @@ pub const SUBSCRIBE_PRESENCES: &str = r#"[5,"OnJsonApiEvent_chat_v4_presences"]"
 pub enum PresenceEvent {
     Connected,
     Changed(GamePresence),
-    Disconnected,
+    /// The socket closed; carries the reason.
+    Disconnected(String),
 }
 
 /// Connect to the local websocket and forward our presence changes until
 /// the socket drops. The caller reconnects with backoff.
 pub async fn run_socket(port: u16, password: Secret<String>, puuid: String, tx: mpsc::UnboundedSender<PresenceEvent>) {
-    let result = socket_once(port, &password, &puuid, &tx).await;
-    if let Err(e) = result {
-        tracing::debug!("presence socket ended: {e}");
-    }
-    let _ = tx.send(PresenceEvent::Disconnected);
+    let reason = match socket_once(port, &password, &puuid, &tx).await {
+        Ok(()) => "closed by the client".to_string(),
+        Err(e) => e,
+    };
+    tracing::debug!("presence socket ended: {reason}");
+    let _ = tx.send(PresenceEvent::Disconnected(reason));
 }
 
 async fn socket_once(

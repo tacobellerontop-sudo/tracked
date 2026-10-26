@@ -75,6 +75,15 @@ Riot web APIs, each request carries:
   Token-bearing header values are marked sensitive, and transport crates are capped at
   `warn` in the log filter, because `tungstenite` logs raw handshake headers at TRACE.
 
+## Startup checklist (`diagnostics.rs`, `ui/connection.rs`)
+
+`Supervisor::try_connect` runs the connection one step at a time (lockfile → local API
+sign-in → region → game version → Riot ID → a real `match-history` call to PD → live
+socket). It publishes a `ConnectionReport` (`Update::Connection`) after every step,
+with the full error chain and a hint for any failure. The UI shows it full-window at
+launch, continues to the home screen once `report.connected()`, and keeps it reachable
+as the Connection page.
+
 ## Connection state machine (`worker/mod.rs`)
 
 ```

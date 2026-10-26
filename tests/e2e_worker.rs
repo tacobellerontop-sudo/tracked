@@ -64,6 +64,7 @@ fn worker_end_to_end() {
     let mut live = None;
     let mut probes: HashMap<String, u32> = HashMap::new();
     let mut names: HashMap<String, String> = HashMap::new();
+    let mut report = ascend_lite::diagnostics::ConnectionReport::default();
     let deadline = Instant::now() + Duration::from_secs(20);
     let done = |live: &Option<ascend_lite::riot::models::LiveMatch>, probes: &HashMap<String, u32>| {
         live.as_ref()
@@ -86,11 +87,20 @@ fn worker_end_to_end() {
                 probes.insert(p, pr.rank.tier);
             }
             Update::Names(n) => names.extend(n.into_iter().map(|(p, id)| (p, id.to_string()))),
+            Update::Connection(r) => report = r,
             _ => {}
         }
     }
 
     assert!(authed, "never authenticated");
+    // The startup checklist saw every step pass, including the live socket.
+    assert!(report.connected(), "{}", report.to_text(None));
+    for (step, state) in &report.steps {
+        assert!(
+            matches!(state, ascend_lite::diagnostics::StepState::Ok(_)),
+            "{step:?}: {state:?}"
+        );
+    }
     let career = career.expect("no career data");
     assert_eq!(career.rank.tier, 10, "self is player 0 -> tier 10");
     assert_eq!(career.rank.rr, 42);

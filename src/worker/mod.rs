@@ -18,10 +18,12 @@ use tokio::task::JoinHandle as TaskHandle;
 use tokio::time::Instant;
 
 use crate::config::Settings;
+use crate::diagnostics::{ConnectionReport, Step, StepState};
 use crate::error::{ApiError, UserFacingError};
 use crate::ipc::{ClientStatus, Intent, IntentRx, Update, UpdateSink};
+use crate::riot::local::LocalClient;
 use crate::riot::presence::{self, GamePresence, LoopState, PresenceEvent};
-use crate::riot::{lockfile, Session};
+use crate::riot::{self, lockfile, pd, RiotId, Session};
 use tasks::Ctx;
 
 /// Lockfile check cadence while the client isn't running.
@@ -81,6 +83,8 @@ struct Supervisor {
     game: Option<GamePresence>,
     live_task: Option<TaskHandle<()>>,
     next_live_poll: Instant,
+    report: ConnectionReport,
+    sent_report: Option<ConnectionReport>,
 }
 
 /// The intent dispatch + supervision loop.
@@ -106,6 +110,8 @@ pub async fn run(mut intents: IntentRx, sink: UpdateSink, settings: Settings) {
         game: None,
         live_task: None,
         next_live_poll: now,
+        report: ConnectionReport::default(),
+        sent_report: None,
     };
     tokio::spawn(social::configure(sup.ctx.clone()));
     if sup.ctx.settings.lock().unwrap().check_for_updates {
@@ -215,29 +221,74 @@ impl Supervisor {
         self.live_task = Some(tokio::spawn(tasks::refresh_live(self.ctx.clone(), state)));
     }
 
+    fn publish_report(&mut self) {
+        if self.sent_report.as_ref() != Some(&self.report) {
+            self.sent_report = Some(self.report.clone());
+            self.ctx.sink.send(Update::Connection(self.report.clone()));
+        }
+    }
+
+    fn step(&mut self, step: Step, state: StepState) {
+        if let StepState::Failed { message, .. } = &state {
+            tracing::warn!(step = step.title(), "connection step failed: {message}");
+        }
+        self.report.set(step, state);
+        self.publish_report();
+    }
+
+    /// Run the connection checklist one step at a time, reporting each.
     async fn try_connect(&mut self) {
         let now = Instant::now();
+        let previous = self.report.clone();
+        self.report.restart();
+
+        self.report.set(Step::Lockfile, StepState::Running);
         let lock = match lockfile::read().await {
             Ok(l) => l,
-            Err(ApiError::NotRunning) => {
-                self.set_status(ClientStatus::NotRunning);
-                self.next_check = now + LOCKFILE_POLL;
-                return;
-            }
             Err(e) => {
-                self.set_status(ClientStatus::Connecting(UserFacingError::from(&e).0));
+                let (status, state) = match &e {
+                    ApiError::NotRunning => {
+                        let path = lockfile::default_path()
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_default();
+                        (
+                            ClientStatus::NotRunning,
+                            StepState::failed(
+                                format!("The Riot Client isn't running (no lockfile at {path})"),
+                                "Start the Riot Client and launch VALORANT. This page updates automatically.",
+                            ),
+                        )
+                    }
+                    other => (
+                        ClientStatus::Connecting(UserFacingError::from(other).0),
+                        StepState::failed(other.to_string(), "Restart the Riot Client."),
+                    ),
+                };
+                self.set_status(status);
+                // Polling every few seconds while nothing runs: don't bump the
+                // attempt counter or re-send an identical report.
+                self.report = ConnectionReport {
+                    attempt: previous.attempt,
+                    ..Default::default()
+                };
+                self.report.set(Step::Lockfile, state);
+                self.publish_report();
                 self.next_check = now + LOCKFILE_POLL;
                 return;
             }
         };
+        self.step(
+            Step::Lockfile,
+            StepState::Ok(format!(
+                "Found the Riot Client on port {} (pid {})",
+                lock.port, lock.pid
+            )),
+        );
         if !matches!(self.status, Some(ClientStatus::Connecting(_))) {
             self.set_status(ClientStatus::Connecting("Connecting to the Riot client…".into()));
         }
-        let result = match self.ctx.client_version().await {
-            Ok(version) => Session::connect(&lock, self.ctx.http.clone(), version).await,
-            Err(e) => Err(e),
-        };
-        match result {
+
+        match self.connect_steps(&lock).await {
             Ok(session) => {
                 let session = Arc::new(session);
                 self.set_status(ClientStatus::Authed {
@@ -256,19 +307,180 @@ impl Supervisor {
                 self.next_check = now + ALIVE_CHECK;
                 self.next_socket_try = now;
                 self.next_presence_poll = now;
+                self.step(Step::LiveUpdates, StepState::Running);
                 tokio::spawn(tasks::seed_friend_names(self.ctx.clone()));
                 tokio::spawn(tasks::refresh_career(self.ctx.clone()));
             }
-            Err(e) => {
+            Err(msg) => {
                 // Typical while the client is still starting; retry with backoff.
-                tracing::info!("riot client not ready: {e}");
-                let msg = match e {
-                    ApiError::RegionUnknown => "Waiting for VALORANT to start…".to_string(),
-                    other => UserFacingError::from(&other).0,
-                };
+                tracing::info!("riot client not ready: {msg}");
                 self.set_status(ClientStatus::Connecting(msg));
                 self.next_check = now + self.backoff;
                 self.backoff = (self.backoff * 2).min(MAX_BACKOFF);
+            }
+        }
+    }
+
+    /// Steps 2-6. On failure the failed step is already reported; the
+    /// returned string is the short status-bar text.
+    async fn connect_steps(&mut self, lock: &lockfile::Lockfile) -> Result<Session, String> {
+        // Local API + login.
+        self.step(Step::LocalApi, StepState::Running);
+        let local = match LocalClient::new(lock) {
+            Ok(l) => l,
+            Err(e) => {
+                self.step(
+                    Step::LocalApi,
+                    StepState::failed(e.to_string(), "This is a bug; please send the diagnostics."),
+                );
+                return Err("Couldn't connect to the Riot Client".into());
+            }
+        };
+        let ent = match local.entitlements().await {
+            Ok(e) => e,
+            Err(e) => {
+                let (msg, hint, status) = match &e {
+                    ApiError::NotFound => (
+                        "The Riot Client is running but you're not signed in".to_string(),
+                        "Sign in to the Riot Client.",
+                        "Sign in to the Riot Client",
+                    ),
+                    ApiError::Unauthorized => (
+                        "The Riot Client rejected the lockfile password".to_string(),
+                        "The client probably restarted; this retries automatically. If it keeps failing, restart the Riot Client.",
+                        "Waiting for the Riot Client…",
+                    ),
+                    ApiError::Network(detail) => (
+                        format!("Couldn't reach the Riot Client's local API: {detail}"),
+                        "The client may still be starting. If this doesn't clear up, check that security software isn't blocking connections to 127.0.0.1, then copy the diagnostics.",
+                        "Waiting for the Riot Client…",
+                    ),
+                    other => (
+                        format!("The Riot Client's local API returned an error: {other}"),
+                        "Restart the Riot Client. If it keeps failing, copy the diagnostics.",
+                        "Waiting for the Riot Client…",
+                    ),
+                };
+                self.step(Step::LocalApi, StepState::failed(msg, hint));
+                return Err(status.into());
+            }
+        };
+        let short = ent.subject.get(..8).unwrap_or(&ent.subject).to_string();
+        self.step(Step::LocalApi, StepState::Ok(format!("Signed in (account {short}…)")));
+
+        // Region.
+        self.step(Step::Region, StepState::Running);
+        let region = match riot::detect_region_with_source(&local).await {
+            Ok((region, source)) => {
+                let from = match source {
+                    riot::RegionSource::LaunchArgs => "from VALORANT",
+                    riot::RegionSource::ClientRegion => "from the Riot Client",
+                    riot::RegionSource::ChatSession => "from your chat session",
+                };
+                self.step(
+                    Step::Region,
+                    StepState::Ok(format!(
+                        "{} (shard {}), {from}",
+                        region.region.to_uppercase(),
+                        region.shard
+                    )),
+                );
+                region
+            }
+            Err(_) => {
+                self.step(
+                    Step::Region,
+                    StepState::failed(
+                        "Couldn't work out your VALORANT region",
+                        "Launch VALORANT itself; the Riot Client on its own doesn't always report a region.",
+                    ),
+                );
+                return Err("Waiting for VALORANT to start…".into());
+            }
+        };
+
+        // Client version (needed for every Riot server call).
+        self.step(Step::ClientVersion, StepState::Running);
+        let version = match self.ctx.client_version().await {
+            Ok(v) => {
+                self.step(Step::ClientVersion, StepState::Ok(v.clone()));
+                v
+            }
+            Err(e) => {
+                self.step(
+                    Step::ClientVersion,
+                    StepState::failed(
+                        format!("Couldn't get the current game version: {e}"),
+                        "Check your internet connection (the version comes from valorant-api.com, or VALORANT's own log once the game has started).",
+                    ),
+                );
+                return Err("Couldn't get the game version".into());
+            }
+        };
+
+        // Riot ID (nice to have).
+        self.step(Step::Identity, StepState::Running);
+        let riot_id = match local.chat_session().await {
+            Ok(c) if !c.game_name.is_empty() => {
+                let id = RiotId {
+                    game_name: c.game_name,
+                    tag_line: c.game_tag,
+                };
+                self.step(Step::Identity, StepState::Ok(id.to_string()));
+                Some(id)
+            }
+            Ok(_) => {
+                self.step(
+                    Step::Identity,
+                    StepState::Warn("Chat isn't ready yet; your Riot ID will show later".into()),
+                );
+                None
+            }
+            Err(e) => {
+                self.step(
+                    Step::Identity,
+                    StepState::Warn(format!("Couldn't read your Riot ID: {e}")),
+                );
+                None
+            }
+        };
+
+        let session = match Session::from_parts(local, ent, region, riot_id, self.ctx.http.clone(), version) {
+            Ok(s) => s,
+            Err(e) => {
+                self.step(
+                    Step::RiotServers,
+                    StepState::failed(e.to_string(), "Please copy the diagnostics."),
+                );
+                return Err("Couldn't set up the Riot session".into());
+            }
+        };
+
+        // A real authenticated call, so token or header problems show up here
+        // rather than as an empty career screen.
+        self.step(Step::RiotServers, StepState::Running);
+        match pd::match_history(&session, &session.puuid, 0, 1).await {
+            Ok(h) => {
+                self.step(
+                    Step::RiotServers,
+                    StepState::Ok(format!("Connected ({} matches on record)", h.total)),
+                );
+                Ok(session)
+            }
+            Err(e) => {
+                let hint = match &e {
+                    ApiError::Unauthorized | ApiError::Status(400) | ApiError::Status(403) => {
+                        "Riot rejected the session. Restart VALORANT; if it persists, the game version may be out of date, so copy the diagnostics."
+                    }
+                    ApiError::RateLimited(_) => "Riot is rate-limiting requests; this retries automatically.",
+                    ApiError::Network(_) => "Check your internet connection or firewall.",
+                    _ => "This retries automatically. If it keeps failing, copy the diagnostics.",
+                };
+                self.step(
+                    Step::RiotServers,
+                    StepState::failed(format!("Riot's match servers returned an error: {e}"), hint),
+                );
+                Err("Couldn't reach Riot's servers".into())
             }
         }
     }
@@ -316,8 +528,22 @@ impl Supervisor {
             PresenceEvent::Connected => {
                 self.socket_connected = true;
                 self.socket_backoff = Duration::from_secs(1);
+                self.step(
+                    Step::LiveUpdates,
+                    StepState::Ok("Connected to the Riot Client's event stream".into()),
+                );
             }
-            PresenceEvent::Disconnected => self.socket_connected = false,
+            PresenceEvent::Disconnected(why) => {
+                self.socket_connected = false;
+                if matches!(self.phase, Phase::Authed { .. }) {
+                    self.step(
+                        Step::LiveUpdates,
+                        StepState::Warn(format!(
+                            "Event stream unavailable, checking every few seconds instead ({why})"
+                        )),
+                    );
+                }
+            }
             PresenceEvent::Changed(gp) => {
                 if self.game.as_ref() == Some(&gp) {
                     return;

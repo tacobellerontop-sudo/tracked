@@ -99,3 +99,29 @@ fn ci_version_from_log() {
     );
     assert_eq!(ascend_lite::riot::parse_ci_version("nothing"), None);
 }
+
+#[test]
+fn region_hints_cover_riot_naming() {
+    use ascend_lite::riot::region::{region_from_hint, shard_from_launch_args};
+    for (hint, want) in [
+        ("NA", "na"),
+        ("na1", "na"),
+        ("EUW", "eu"),
+        ("eune1", "eu"),
+        ("eu3", "eu"),
+        ("TR", "eu"),
+        ("OC1", "ap"),
+        ("jp1", "ap"),
+        ("KR", "kr"),
+        ("br1", "br"),
+        ("LA1", "latam"),
+        ("las", "latam"),
+    ] {
+        assert_eq!(region_from_hint(hint).as_deref(), Some(want), "{hint}");
+    }
+    assert_eq!(region_from_hint(""), None);
+    assert_eq!(region_from_hint("mars"), None);
+    let args = ["-x", "-config-endpoint=https://shared.eu.a.pvp.net"];
+    assert_eq!(shard_from_launch_args(&args).as_deref(), Some("eu"));
+    assert_eq!(shard_from_launch_args(&["-config-endpoint=https://evil.com"]), None);
+}

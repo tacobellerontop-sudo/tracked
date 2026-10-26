@@ -133,7 +133,7 @@ impl LocalClient {
             .basic_auth("riot", Some(self.password.expose()))
             .send()
             .await
-            .map_err(|e| ApiError::Network(e.without_url().to_string()))?;
+            .map_err(|e| ApiError::Network(crate::error::chain(&e.without_url())))?;
         match resp.status().as_u16() {
             200..=299 => Ok(resp.json().await?),
             401 | 403 => Err(ApiError::Unauthorized),

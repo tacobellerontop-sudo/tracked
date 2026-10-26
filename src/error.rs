@@ -31,16 +31,32 @@ pub enum ApiError {
 
 impl From<reqwest::Error> for ApiError {
     fn from(e: reqwest::Error) -> Self {
-        // reqwest errors can embed the full URL; our URLs never contain
-        // credentials (those go in headers), so this is safe to keep.
         if e.is_decode() {
-            ApiError::Decode(e.to_string())
+            ApiError::Decode(chain(&e))
         } else if let Some(s) = e.status() {
             ApiError::Status(s.as_u16())
         } else {
-            ApiError::Network(e.without_url().to_string())
+            // Credentials never go in URLs, but strip it anyway: the cause
+            // chain (TLS / connection refused / timeout) is what matters.
+            ApiError::Network(chain(&e.without_url()))
         }
     }
+}
+
+/// "outer: inner: root cause" — reqwest's own message alone ("error sending
+/// request") hides the part you need to diagnose a connection problem.
+pub fn chain(e: &dyn std::error::Error) -> String {
+    let mut out = e.to_string();
+    let mut src = e.source();
+    while let Some(s) = src {
+        let msg = s.to_string();
+        if !out.contains(&msg) {
+            out.push_str(": ");
+            out.push_str(&msg);
+        }
+        src = s.source();
+    }
+    out
 }
 
 impl From<serde_json::Error> for ApiError {

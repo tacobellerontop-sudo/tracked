@@ -1,6 +1,7 @@
 //! Top-level layout: status bar, left nav rail, content panel, toasts.
 
 pub mod career;
+pub mod connection;
 pub mod crosshairs;
 pub mod live;
 pub mod lookup;
@@ -28,6 +29,7 @@ const NAV: &[(Screen, &str, egui::Key)] = &[
     (Screen::Crosshairs, "Crosshairs", egui::Key::Num4),
     (Screen::Social, "Social", egui::Key::Num5),
     (Screen::Settings, "Settings", egui::Key::Num6),
+    (Screen::Connection, "Connection", egui::Key::Num7),
 ];
 
 pub fn draw(ctx: &egui::Context, state: &mut AppState, intents: &IntentTx) {
@@ -37,6 +39,11 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState, intents: &IntentTx) {
     }
     if let MinVersionState::Blocked { required, download_url } = state.social.min_version.clone() {
         egui::CentralPanel::default().show(ctx, |ui| update_required(ui, state, intents, &required, download_url));
+        return;
+    }
+    if !state.startup_done {
+        toasts(ctx, state);
+        connection::startup(ctx, state, intents);
         return;
     }
     let social_on = state.social.status != BackendStatus::Disabled;
@@ -83,6 +90,7 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState, intents: &IntentTx) {
                 Screen::Crosshairs => crosshairs::ui(ui, state, intents),
                 Screen::MatchDetail => match_detail::ui(ui, state, intents),
                 Screen::Settings => settings::ui(ui, state, intents),
+                Screen::Connection => connection::ui(ui, state, intents),
                 Screen::Social => {}
             });
     });
@@ -120,7 +128,7 @@ fn update_required(
     });
 }
 
-fn status_bar(ui: &mut egui::Ui, state: &AppState, intents: &IntentTx) {
+fn status_bar(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
     ui.horizontal(|ui| {
         let (color, text) = match &state.status {
             ClientStatus::NotRunning => (Color32::from_rgb(200, 70, 70), "VALORANT isn't running".to_string()),
@@ -135,7 +143,12 @@ fn status_bar(ui: &mut egui::Ui, state: &AppState, intents: &IntentTx) {
         };
         let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
         ui.painter().circle_filled(rect.center(), 4.5, color);
-        ui.label(text);
+        let link = ui
+            .add(egui::Button::new(text).frame(false))
+            .on_hover_text("Connection details");
+        if link.clicked() {
+            state.screen = Screen::Connection;
+        }
         if let Some(g) = &state.game {
             ui.separator();
             ui.label(live::loop_state_label(g.loop_state));

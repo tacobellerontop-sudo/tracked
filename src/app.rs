@@ -29,6 +29,8 @@ pub enum Screen {
     Social,
     Settings,
     MatchDetail,
+    /// The connection checklist (also the startup screen).
+    Connection,
 }
 
 /// Everything the Social screen shows (Phase 3, optional backend).
@@ -196,6 +198,12 @@ pub struct AppState {
     pub pending_toasts: Vec<String>,
     pub settings: Settings,
     pub last_pong: Option<u64>,
+    /// Step-by-step connection status from the worker.
+    pub connection: crate::diagnostics::ConnectionReport,
+    /// False while the startup screen is showing.
+    pub startup_done: bool,
+    /// When every required step first passed (drives the auto-continue).
+    pub connected_since: Option<Instant>,
 }
 
 impl AppState {
@@ -203,6 +211,9 @@ impl AppState {
         Self {
             screen: Screen::Career,
             status: ClientStatus::NotRunning,
+            connection: Default::default(),
+            startup_done: false,
+            connected_since: None,
             catalog: Arc::new(Catalog::default()),
             game: None,
             career: None,
@@ -238,11 +249,19 @@ impl AppState {
                 }
                 self.status = s;
             }
+            Update::Connection(r) => {
+                if !r.connected() {
+                    self.connected_since = None;
+                } else if self.connected_since.is_none() {
+                    self.connected_since = Some(Instant::now());
+                }
+                self.connection = r;
+            }
             Update::Content(c) => self.catalog = c,
             Update::Game(g) => {
                 // Jump to the live screen the moment agent select starts.
                 let was_live = self.game.as_ref().is_some_and(|g| g.loop_state.is_live());
-                if !was_live && g.as_ref().is_some_and(|g| g.loop_state.is_live()) {
+                if self.startup_done && !was_live && g.as_ref().is_some_and(|g| g.loop_state.is_live()) {
                     self.screen = Screen::Live;
                 }
                 self.game = g;
@@ -335,6 +354,13 @@ impl AppState {
         self.return_to = self.screen;
         self.selected_match = Some(id);
         self.screen = Screen::MatchDetail;
+    }
+
+    /// Leave the startup screen for the home screen (Live if a game is on).
+    pub fn finish_startup(&mut self) {
+        self.startup_done = true;
+        let live = self.game.as_ref().is_some_and(|g| g.loop_state.is_live());
+        self.screen = if live { Screen::Live } else { Screen::Career };
     }
 
     /// Start a lookup by PUUID (e.g. clicking a lobby player).

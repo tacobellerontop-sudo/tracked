@@ -267,6 +267,19 @@ fn card(i: usize, matches: &[MatchDetail]) -> PlayerCard {
 
 pub async fn run(mut intents: IntentRx, ctx: Arc<Ctx>) {
     ctx.set_catalog(catalog());
+    let mut report = crate::diagnostics::ConnectionReport::default();
+    for (step, detail) in [
+        (crate::diagnostics::Step::Lockfile, "Demo mode: no Riot Client needed"),
+        (crate::diagnostics::Step::LocalApi, "Signed in (demo)"),
+        (crate::diagnostics::Step::Region, "EU (shard eu)"),
+        (crate::diagnostics::Step::ClientVersion, "demo"),
+        (crate::diagnostics::Step::Identity, "you#1000"),
+        (crate::diagnostics::Step::RiotServers, "Connected (synthetic data)"),
+        (crate::diagnostics::Step::LiveUpdates, "Connected (synthetic data)"),
+    ] {
+        report.set(step, crate::diagnostics::StepState::Ok(detail.into()));
+    }
+    ctx.sink.send(Update::Connection(report));
     let me = RiotId {
         game_name: "you".into(),
         tag_line: "1000".into(),
