@@ -6,12 +6,14 @@ pub mod live;
 pub mod lookup;
 pub mod match_detail;
 pub mod settings;
+pub mod social;
 pub mod widgets;
 
 use egui::Color32;
 
 use crate::app::{AppState, Screen, Toast};
-use crate::ipc::{ClientStatus, Intent, IntentTx};
+use crate::backend::models::MinVersionState;
+use crate::ipc::{BackendStatus, ClientStatus, Intent, IntentTx};
 
 pub const DISCLAIMER: &str = "Ascend-Lite is an unofficial third-party tool. It is not affiliated with, \
 endorsed, sponsored or approved by Riot Games. VALORANT and Riot Games are trademarks of Riot Games, Inc. \
@@ -24,7 +26,8 @@ const NAV: &[(Screen, &str, egui::Key)] = &[
     (Screen::Career, "Career", egui::Key::Num2),
     (Screen::Lookup, "Lookup", egui::Key::Num3),
     (Screen::Crosshairs, "Crosshairs", egui::Key::Num4),
-    (Screen::Settings, "Settings", egui::Key::Num5),
+    (Screen::Social, "Social", egui::Key::Num5),
+    (Screen::Settings, "Settings", egui::Key::Num6),
 ];
 
 pub fn draw(ctx: &egui::Context, state: &mut AppState, intents: &IntentTx) {
@@ -32,9 +35,15 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState, intents: &IntentTx) {
         egui::CentralPanel::default().show(ctx, |ui| disclaimer(ui, state, intents));
         return;
     }
+    if let MinVersionState::Blocked { required, download_url } = state.social.min_version.clone() {
+        egui::CentralPanel::default().show(ctx, |ui| update_required(ui, state, intents, &required, download_url));
+        return;
+    }
+    let social_on = state.social.status != BackendStatus::Disabled;
+    let visible = |s: &Screen| *s != Screen::Social || social_on;
 
     // Ctrl+<n> switches screens.
-    for (screen, _, key) in NAV {
+    for (screen, _, key) in NAV.iter().filter(|(s, _, _)| visible(s)) {
         if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, *key)) {
             state.screen = *screen;
         }
@@ -46,9 +55,9 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState, intents: &IntentTx) {
         .exact_width(120.0)
         .show(ctx, |ui| {
             ui.add_space(8.0);
-            for (screen, label, _) in NAV {
+            for (screen, label, _) in NAV.iter().filter(|(s, _, _)| visible(s)) {
                 let selected =
-                    state.screen == *screen || (*screen == Screen::Career && state.screen == Screen::MatchDetail);
+                    state.screen == *screen || (state.screen == Screen::MatchDetail && state.return_to == *screen);
                 let resp = ui.add_sized(
                     [ui.available_width(), 32.0],
                     egui::SelectableLabel::new(selected, *label),
@@ -60,6 +69,11 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState, intents: &IntentTx) {
         });
     toasts(ctx, state);
     egui::CentralPanel::default().show(ctx, |ui| {
+        // Social manages its own scroll areas (friends, conversations, messages).
+        if state.screen == Screen::Social {
+            social::ui(ui, state, intents);
+            return;
+        }
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| match state.screen {
@@ -69,7 +83,40 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState, intents: &IntentTx) {
                 Screen::Crosshairs => crosshairs::ui(ui, state, intents),
                 Screen::MatchDetail => match_detail::ui(ui, state, intents),
                 Screen::Settings => settings::ui(ui, state, intents),
+                Screen::Social => {}
             });
+    });
+}
+
+/// The backend says this version is too old: lock the app (version gate).
+fn update_required(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    intents: &IntentTx,
+    required: &str,
+    download_url: Option<String>,
+) {
+    ui.vertical_centered(|ui| {
+        ui.add_space(80.0);
+        ui.heading("Update required");
+        ui.add_space(8.0);
+        ui.label(format!(
+            "The configured backend requires Ascend-Lite v{required} or newer. You're running v{}.",
+            env!("CARGO_PKG_VERSION")
+        ));
+        if let Some(url) = download_url {
+            ui.hyperlink_to("Download the latest version", url);
+        }
+        ui.add_space(16.0);
+        if ui
+            .button("Turn off social features and keep using the tracker")
+            .clicked()
+        {
+            state.settings.backend_url = None;
+            state.social.url_input.clear();
+            state.save_settings(intents);
+            intents.send(Intent::BackendConfigure);
+        }
     });
 }
 

@@ -5,8 +5,16 @@ use std::sync::Arc;
 
 use crate::config::{Settings, Theme};
 use crate::content::Catalog;
+use std::collections::HashSet;
+use std::time::Instant;
+
+use crate::backend::models::{
+    AppConfig, BackendUser, Conversation, DmMessage, LobbyInfo, MinVersionState, PresenceEntry,
+};
 use crate::crosshair::CrosshairCode;
-use crate::ipc::{CareerSummary, ClientStatus, Intent, IntentTx, PlayerCard, Update, UpdateRx, UpdateStatus};
+use crate::ipc::{
+    BackendStatus, CareerSummary, ClientStatus, Intent, IntentTx, PlayerCard, Update, UpdateRx, UpdateStatus,
+};
 use crate::riot::models::{LiveMatch, MatchDetail, MatchId, Puuid};
 use crate::riot::pd::PlayerProbe;
 use crate::riot::presence::GamePresence;
@@ -18,8 +26,122 @@ pub enum Screen {
     Career,
     Lookup,
     Crosshairs,
+    Social,
     Settings,
     MatchDetail,
+}
+
+/// Everything the Social screen shows (Phase 3, optional backend).
+pub struct SocialState {
+    pub status: BackendStatus,
+    pub min_version: MinVersionState,
+    pub config: Option<AppConfig>,
+    pub connected: bool,
+    pub friends: Vec<BackendUser>,
+    pub presence: HashMap<String, PresenceEntry>,
+    pub lobbies: HashMap<String, LobbyInfo>,
+    pub conversations: Vec<Conversation>,
+    pub messages: HashMap<String, Vec<DmMessage>>,
+    pub has_more: HashMap<String, bool>,
+    pub open: Option<String>,
+    /// Open the next conversation that arrives (after "Message" / "Create").
+    pub open_next: bool,
+    pub draft: String,
+    pub typing: HashMap<String, (String, Instant)>,
+    pub last_typing_sent: Option<Instant>,
+    pub sign_in_name: String,
+    pub group_pick: HashSet<String>,
+    pub group_name: String,
+    pub rename: String,
+    pub feedback: String,
+    pub url_input: String,
+}
+
+impl SocialState {
+    fn new(url: Option<String>) -> Self {
+        Self {
+            status: BackendStatus::Disabled,
+            min_version: MinVersionState::Ok,
+            config: None,
+            connected: false,
+            friends: Vec::new(),
+            presence: HashMap::new(),
+            lobbies: HashMap::new(),
+            conversations: Vec::new(),
+            messages: HashMap::new(),
+            has_more: HashMap::new(),
+            open: None,
+            open_next: false,
+            draft: String::new(),
+            typing: HashMap::new(),
+            last_typing_sent: None,
+            sign_in_name: String::new(),
+            group_pick: HashSet::new(),
+            group_name: String::new(),
+            rename: String::new(),
+            feedback: String::new(),
+            url_input: url.unwrap_or_default(),
+        }
+    }
+
+    pub fn me(&self) -> Option<&BackendUser> {
+        match &self.status {
+            BackendStatus::SignedIn(u) => Some(u),
+            _ => None,
+        }
+    }
+
+    pub fn user_name(&self, id: &str) -> String {
+        if self.me().is_some_and(|m| m.id == id) {
+            return "You".into();
+        }
+        self.friends
+            .iter()
+            .find(|f| f.id == id)
+            .map(|f| f.display_name.clone())
+            .unwrap_or_else(|| id.to_string())
+    }
+
+    fn upsert_conversation(&mut self, c: Conversation) {
+        let id = c.id.clone();
+        match self.conversations.iter_mut().find(|x| x.id == c.id) {
+            Some(x) => *x = c,
+            None => self.conversations.insert(0, c),
+        }
+        if self.open_next {
+            self.open_next = false;
+            self.open = Some(id);
+        }
+    }
+
+    fn add_messages(&mut self, conv: &str, msgs: Vec<DmMessage>) {
+        let list = self.messages.entry(conv.to_string()).or_default();
+        for m in msgs {
+            if !list.iter().any(|x| x.id == m.id) {
+                list.push(m);
+            }
+        }
+        list.sort_by_key(|m| m.id);
+    }
+
+    fn on_message(&mut self, m: DmMessage) {
+        let mine = self.me().is_some_and(|me| me.id == m.sender_id);
+        let is_open = self.open.as_deref() == Some(m.conversation_id.as_str());
+        self.typing.remove(&m.conversation_id);
+        if let Some(c) = self.conversations.iter_mut().find(|c| c.id == m.conversation_id) {
+            let newer = c.last_message.as_ref().is_none_or(|l| l.id < m.id);
+            if newer {
+                if !mine && !is_open {
+                    c.unread += 1;
+                }
+                c.last_message = Some(m.clone());
+            }
+        }
+        // Most recent conversation first.
+        self.conversations
+            .sort_by_key(|c| std::cmp::Reverse(c.last_message.as_ref().map(|m| m.id).unwrap_or(0)));
+        self.add_messages(&m.conversation_id.clone(), vec![m]);
+    }
 }
 
 #[derive(Default)]
@@ -69,6 +191,7 @@ pub struct AppState {
     pub lookup: LookupState,
     pub crosshair: CrosshairEditor,
     pub update_status: Option<UpdateStatus>,
+    pub social: SocialState,
     pub toasts: Vec<Toast>,
     pub pending_toasts: Vec<String>,
     pub settings: Settings,
@@ -94,6 +217,7 @@ impl AppState {
             lookup: LookupState::default(),
             crosshair: CrosshairEditor::default(),
             update_status: None,
+            social: SocialState::new(settings.backend_url.clone()),
             toasts: Vec::new(),
             pending_toasts: Vec::new(),
             settings,
@@ -144,6 +268,61 @@ impl AppState {
                 self.lookup.result = Some(r.map_err(|e| e.0));
             }
             Update::UpdateStatus(s) => self.update_status = Some(s),
+            Update::Notice(n) => self.pending_toasts.push(n),
+            Update::Backend(st) => {
+                if !matches!(st, BackendStatus::SignedIn(_)) {
+                    // Drop per-user data, but keep what describes the backend itself.
+                    let url = self.social.url_input.clone();
+                    let min = self.social.min_version.clone();
+                    let config = self.social.config.take();
+                    self.social = SocialState::new(Some(url));
+                    self.social.min_version = min;
+                    self.social.config = config;
+                }
+                self.social.status = st;
+            }
+            Update::MinVersion(m) => self.social.min_version = m,
+            Update::AppConfig(c) => self.social.config = Some(c),
+            Update::SocialLive(b) => self.social.connected = b,
+            Update::SocialFriends(f) => self.social.friends = f,
+            Update::SocialPresence(entries) => {
+                for e in entries {
+                    if let Some(l) = &e.lobby {
+                        self.social.lobbies.insert(e.user_id.clone(), l.clone());
+                    }
+                    self.social.presence.insert(e.user_id.clone(), e);
+                }
+            }
+            Update::SocialLobby { user_id, lobby } => match lobby {
+                Some(l) => {
+                    self.social.lobbies.insert(user_id, l);
+                }
+                None => {
+                    self.social.lobbies.remove(&user_id);
+                }
+            },
+            Update::DmConversations(list) => {
+                self.social.conversations = list;
+                if self.social.open.is_none() {
+                    self.social.open = self.social.conversations.first().map(|c| c.id.clone());
+                }
+            }
+            Update::DmConversation(c) => self.social.upsert_conversation(c),
+            Update::DmPage {
+                conversation_id,
+                messages,
+                has_more,
+            } => {
+                self.social.has_more.insert(conversation_id.clone(), has_more);
+                self.social.add_messages(&conversation_id, messages);
+            }
+            Update::DmMessage(m) => self.social.on_message(m),
+            Update::DmTyping {
+                conversation_id,
+                user_id,
+            } => {
+                self.social.typing.insert(conversation_id, (user_id, Instant::now()));
+            }
         }
     }
 

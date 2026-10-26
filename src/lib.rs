@@ -9,6 +9,7 @@
 //! Client's local API and Riot's web endpoints using tokens it issued.
 
 pub mod app;
+pub mod backend;
 pub mod config;
 pub mod content;
 pub mod crosshair;

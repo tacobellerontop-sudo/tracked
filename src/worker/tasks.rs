@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
+use crate::backend::social_ws::ClientMsg;
+use crate::backend::BackendClient;
 use crate::config::Settings;
 use crate::content::{valorant_api, Catalog};
 use crate::error::{ApiError, UserFacingError};
@@ -13,7 +15,7 @@ use crate::ipc::{CareerSummary, PlayerCard, RrPoint, Update, UpdateSink, UpdateS
 use crate::riot::models::{LiveMatch, MatchDetail, MatchId, Puuid};
 use crate::riot::names::NameCache;
 use crate::riot::pd::PlayerProbe;
-use crate::riot::presence::LoopState;
+use crate::riot::presence::{GamePresence, LoopState};
 use crate::riot::{account, glz, pd, RiotId, Session};
 
 /// How many recent matches the career screen loads details for.
@@ -37,6 +39,12 @@ pub struct Ctx {
     pub probing: Mutex<HashSet<Puuid>>,
     pub live: Mutex<Option<LiveMatch>>,
     last_live_error: Mutex<Option<String>>,
+    /// Our latest presence (menus / agent select / in game).
+    pub game: Mutex<Option<GamePresence>>,
+    /// Optional backend client (Phase 3); `None` in tracker-only mode.
+    pub backend: RwLock<Option<Arc<BackendClient>>>,
+    pub social_out: Mutex<Option<tokio::sync::mpsc::UnboundedSender<ClientMsg>>>,
+    pub social_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl Ctx {
@@ -54,11 +62,19 @@ impl Ctx {
             probing: Mutex::new(HashSet::new()),
             live: Mutex::new(None),
             last_live_error: Mutex::new(None),
+            game: Mutex::new(None),
+            backend: RwLock::new(None),
+            social_out: Mutex::new(None),
+            social_task: Mutex::new(None),
         }
     }
 
     pub fn session(&self) -> Result<Arc<Session>, ApiError> {
         self.session.read().unwrap().clone().ok_or(ApiError::NotRunning)
+    }
+
+    pub fn game_state(&self) -> Option<GamePresence> {
+        self.game.lock().unwrap().clone()
     }
 
     pub fn catalog(&self) -> Arc<Catalog> {
@@ -260,6 +276,7 @@ pub async fn refresh_live(ctx: Arc<Ctx>, hint: LoopState) {
             if changed {
                 *ctx.live.lock().unwrap() = live.clone();
                 ctx.sink.send(Update::LiveMatch(live.clone()));
+                super::social::publish_lobby(&ctx, live.as_ref());
             }
             if let Some(m) = live {
                 probe_players(&ctx, &m, false).await;

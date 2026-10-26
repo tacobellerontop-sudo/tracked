@@ -6,6 +6,7 @@
 //! * keeps the presence websocket alive, falling back to polling.
 
 pub mod demo;
+pub mod social;
 pub mod tasks;
 
 use std::sync::Arc;
@@ -106,6 +107,7 @@ pub async fn run(mut intents: IntentRx, sink: UpdateSink, settings: Settings) {
         live_task: None,
         next_live_poll: now,
     };
+    tokio::spawn(social::configure(sup.ctx.clone()));
     if sup.ctx.settings.lock().unwrap().check_for_updates {
         tokio::spawn(tasks::check_for_updates(sup.ctx.clone()));
     }
@@ -128,6 +130,9 @@ pub async fn run(mut intents: IntentRx, sink: UpdateSink, settings: Settings) {
 
 impl Supervisor {
     fn handle(&mut self, intent: Intent) {
+        if social::handle(&self.ctx, &intent) {
+            return;
+        }
         let ctx = self.ctx.clone();
         match intent {
             Intent::Ping(n) => ctx.sink.send(Update::Pong(n)),
@@ -159,9 +164,15 @@ impl Supervisor {
                 });
             }
             Intent::SaveSettings(s) => {
+                // Update the in-memory copy now so intents queued right after
+                // (e.g. BackendConfigure) see the new values; only the disk
+                // write is deferred.
+                *ctx.settings.lock().unwrap() = s.clone();
                 tokio::spawn(tasks::save_settings(ctx, s));
             }
             Intent::Shutdown => {}
+            // Backend intents are handled by `social::handle` above.
+            _ => {}
         }
     }
 
@@ -321,6 +332,8 @@ impl Supervisor {
                     self.next_live_poll = Instant::now();
                 }
                 self.game = Some(gp.clone());
+                *self.ctx.game.lock().unwrap() = Some(gp.clone());
+                social::publish_presence(&self.ctx, &gp);
                 self.ctx.sink.send(Update::Game(Some(gp)));
             }
         }
@@ -337,6 +350,7 @@ impl Supervisor {
         self.ctx.sink.send(Update::LiveMatch(None));
         self.socket_connected = false;
         self.game = None;
+        *self.ctx.game.lock().unwrap() = None;
         *self.ctx.session.write().unwrap() = None;
         self.ctx.sink.send(Update::Game(None));
     }

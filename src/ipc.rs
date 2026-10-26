@@ -4,6 +4,9 @@
 
 use std::sync::{mpsc, Arc};
 
+use crate::backend::models::{
+    AppConfig, BackendUser, Conversation, DmMessage, LobbyInfo, MinVersionState, PresenceEntry,
+};
 use crate::config::Settings;
 use crate::content::Catalog;
 use crate::error::UserFacingError;
@@ -32,6 +35,38 @@ pub enum Intent {
     ProbePartyMmr,
     SaveSettings(Settings),
     CheckForUpdates,
+
+    // ---- optional backend (Phase 3)
+    /// (Re)connect to the configured backend URL (after it changes).
+    BackendConfigure,
+    BackendSignIn {
+        display_name: String,
+    },
+    BackendSignOut,
+    SocialRefresh,
+    DmOpen(String),
+    DmLoadOlder {
+        conversation_id: String,
+        before: u64,
+    },
+    DmSend {
+        conversation_id: String,
+        text: String,
+    },
+    DmCreate {
+        members: Vec<String>,
+        name: Option<String>,
+    },
+    DmRename {
+        conversation_id: String,
+        name: String,
+    },
+    DmMarkRead {
+        conversation_id: String,
+        message_id: u64,
+    },
+    DmTyping(String),
+    SendFeedback(String),
     Shutdown,
 }
 
@@ -91,6 +126,16 @@ pub enum UpdateStatus {
     Failed(String),
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum BackendStatus {
+    /// No backend URL configured: tracker-only mode.
+    Disabled,
+    SignedOut,
+    SigningIn,
+    SignedIn(BackendUser),
+    Error(String),
+}
+
 /// Sent worker -> UI. One variant per thing the UI can display.
 #[derive(Debug, Clone)]
 pub enum Update {
@@ -106,6 +151,31 @@ pub enum Update {
     PlayerLookup(Result<PlayerCard, UserFacingError>),
     UpdateStatus(UpdateStatus),
     CareerLoading(bool),
+    Backend(BackendStatus),
+    MinVersion(MinVersionState),
+    AppConfig(AppConfig),
+    /// `true` while the social websocket is connected.
+    SocialLive(bool),
+    SocialFriends(Vec<BackendUser>),
+    SocialPresence(Vec<PresenceEntry>),
+    SocialLobby {
+        user_id: String,
+        lobby: Option<LobbyInfo>,
+    },
+    DmConversations(Vec<Conversation>),
+    DmConversation(Conversation),
+    DmPage {
+        conversation_id: String,
+        messages: Vec<DmMessage>,
+        has_more: bool,
+    },
+    DmMessage(DmMessage),
+    DmTyping {
+        conversation_id: String,
+        user_id: String,
+    },
+    /// A short success message for the toast area.
+    Notice(String),
     Career(CareerSummary),
     MatchDetails(MatchId, Arc<MatchDetail>),
     Error(UserFacingError),

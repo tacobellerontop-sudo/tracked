@@ -51,7 +51,7 @@ The target platform is **Windows** (where VALORANT runs). The app also builds an
 on Linux/macOS (handy for development with `--demo`). On Linux you need the usual
 X11/Wayland libraries egui uses (e.g. `libxkbcommon-x11`).
 
-**Phases 1–2 need no backend at all.** Everything comes straight from the Riot client
+**The tracker (Phases 1–2) needs no backend at all.** Everything comes straight from the Riot client
 and valorant-api.com.
 
 ### Player lookup
@@ -79,6 +79,35 @@ Settings never contain credentials. Override with `ASCEND_CONFIG_DIR` / `ASCEND_
 | `ASCEND_LOCKFILE` | Use a different lockfile path |
 | `ASCEND_CLIENT_VERSION` | Override the Riot client version header |
 | `RIOT_API_KEY` | Optional: search any Riot ID via Riot's official account API |
+
+## Social features (optional backend)
+
+Friends, presence, lobbies and DMs need an Ascend-compatible backend, and are **off
+unless you set a backend URL** (Settings → Social). For local use there's an in-memory
+mock that implements the whole contract, with three bot friends who answer DMs:
+
+```sh
+cargo run -p mock-backend                 # serves http://127.0.0.1:8787
+cargo run -- --demo                       # then Settings → Backend URL → http://127.0.0.1:8787
+```
+
+In `--demo` mode the app signs in to a configured backend automatically.
+`MOCK_MIN_VERSION=9.0.0 cargo run -p mock-backend` demonstrates the "update required" gate.
+
+What is (and isn't) shared with the backend:
+
+- Never: the lockfile password, Riot tokens or anything else from the Riot session.
+  The backend client has no access to the Riot session at all.
+- Your game state (menus / agent select / in game + queue) is shared with friends only
+  while "Share my game status" is on (default on once you sign in).
+- Party size and queue (never the party id or members) are shared only if you turn on
+  "Share my party size and queue" (default off).
+- The backend session token is kept in memory only, so you sign in again after a restart.
+- Only `https://` backend URLs are accepted, plus `http://` for localhost.
+
+The mock's `POST /api/auth/dev-login` is a development stand-in. A real deployment
+would put a proper identity provider (OIDC/Supabase-style) behind the same bearer-JWT
+contract.
 
 ## Feature flags
 

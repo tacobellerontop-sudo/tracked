@@ -217,13 +217,15 @@ fn probe(i: usize) -> PlayerProbe {
 }
 
 fn send_live(ctx: &Ctx) {
-    ctx.sink.send(Update::Game(Some(GamePresence {
+    let game = GamePresence {
         loop_state: LoopState::InGame,
         party_size: 2,
         queue_id: "competitive".into(),
         map: "/Game/Maps/Lotus/Lotus".into(),
         ..Default::default()
-    })));
+    };
+    *ctx.game.lock().unwrap() = Some(game.clone());
+    ctx.sink.send(Update::Game(Some(game)));
     ctx.sink.send(Update::LiveMatch(Some(live_match())));
     ctx.sink.send(Update::Names(
         (0..10)
@@ -324,7 +326,19 @@ pub async fn run(mut intents: IntentRx, ctx: Arc<Ctx>) {
 
     send_live(&ctx);
 
+    // With a backend configured, the demo signs straight in so the Social
+    // screen has something to show.
+    let social_ctx = ctx.clone();
+    tokio::spawn(async move {
+        super::social::configure(social_ctx.clone()).await;
+        if social_ctx.backend.read().unwrap().is_some() {
+            super::social::sign_in(social_ctx, "you".into()).await;
+        }
+    });
     while let Some(intent) = intents.recv().await {
+        if super::social::handle(&ctx, &intent) {
+            continue;
+        }
         match intent {
             Intent::Ping(n) => ctx.sink.send(Update::Pong(n)),
             Intent::RefreshCareer => send_career(),

@@ -1,5 +1,5 @@
 [workspace]
-members = ["."]
+members = [".", "mock-backend"]
 resolver = "2"
 
 [package]
@@ -51,8 +51,10 @@ regex = "1"
 directories = "5"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 semver = "1"
+webpki-roots = "0.26"
 
 [dev-dependencies]
+mock-backend = { path = "mock-backend" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "test-util"] }
 rcgen = "0.13"
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }

@@ -30,6 +30,10 @@ pub struct Settings {
     pub crosshairs: Vec<CrosshairPreset>,
     /// Optional social backend (Phase 3). `None` = tracker-only mode.
     pub backend_url: Option<String>,
+    /// Share "in menus / agent select / in game" with backend friends.
+    pub share_presence: bool,
+    /// Share party size + queue with backend friends (never the party id).
+    pub share_lobby: bool,
     pub disclaimer_accepted: bool,
     pub check_for_updates: bool,
     /// GitHub "latest release" API URL (or any JSON with a `tag_name`).
@@ -46,6 +50,8 @@ impl Default for Settings {
             poll_interval_secs: 5,
             crosshairs: Vec::new(),
             backend_url: None,
+            share_presence: true,
+            share_lobby: false,
             disclaimer_accepted: false,
             check_for_updates: true,
             update_url: DEFAULT_UPDATE_URL.to_string(),

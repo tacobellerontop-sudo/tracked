@@ -89,6 +89,44 @@ Authed:
   INGAME → MENUS: refresh career (match just ended)
 ```
 
+## Optional backend (Phase 3)
+
+`backend/` talks to an Ascend-compatible backend at a configurable base URL, using its
+own bearer JWT (memory only). It has no reference to the Riot `Session`, so Riot
+credentials can't reach it. `worker/social.rs` owns the lifecycle:
+
+```
+BackendConfigure ─▶ validate URL ─▶ GET min-version (gate) ─▶ GET app-config ─▶ SignedOut
+BackendSignIn    ─▶ POST /api/auth/dev-login ─▶ SignedIn ─▶ friends + presence + lobbies + DM list
+                 ─▶ social websocket task (reconnect w/ backoff) + REST heartbeat every 60 s
+game state change ─▶ presence_usage   (if share_presence)
+party change      ─▶ lobby_push       (if share_lobby; size + queue only)
+```
+
+| REST | Purpose |
+| --- | --- |
+| `GET /api/companion/app-config`, `GET /api/companion/min-version` | remote flags, version gate |
+| `POST /api/companion/heartbeat`, `POST /api/companion/feedback` | keep-alive, feedback |
+| `POST /api/companion/lobby` (+ `/touch`, `/lookup`, `/clear`) | publish / read lobbies |
+| `POST /api/companion/presence/lookup` | batch presence |
+| `GET /social/v1/friends` | friends |
+| `GET/POST /social/v1/dm`, `GET/POST /social/v1/dm/:id/messages`, `/rename`, `/read`, `/typing`, `/report`, `/requests/:id` | DMs |
+| `/mm/v1/...`, `/mm/v2/...` | stats service (canned in the mock) |
+
+Social websocket (`/social/ws`, JSON frames with a `type` field):
+
+| Client → server | Server → client |
+| --- | --- |
+| `subscribe {topics}` | `hello {user_id}` |
+| `heartbeat` (every 25 s) | `heartbeat_ack`, `subscribed` |
+| `presence_lookup {user_ids}` | `presence {entries}` |
+| `presence_usage {state, queue, party_size}` | `lobby {user_id, lobby}` |
+| `lobby_push {lobby}` / `lobby_touch` | `dm {conversation_id, message}`, `typing {...}`, `conversation {...}`, `error` |
+
+`mock-backend/` is an independent axum implementation of the same contract, written
+against the JSON wire format rather than the client's Rust types, so the two check each
+other. `tests/social_e2e.rs` runs the real worker against it in-process.
+
 ## Module map
 
 | Path | Role |
@@ -116,7 +154,12 @@ Authed:
 | `crosshair.rs` | crosshair code parse / edit / serialize |
 | `config.rs` | persisted non-secret settings |
 | `logging.rs` | tracing setup with hard caps on transport crates |
+| `backend/client.rs` | backend REST client (base-URL validation, bearer auth) |
+| `backend/social_ws.rs` | social websocket protocol + session task |
+| `backend/models.rs` | backend wire types, `MinVersionState` |
+| `worker/social.rs` | backend lifecycle, socket supervision, DM/feedback intents |
 | `ui/*` | one module per screen + shared widgets |
+| `mock-backend/` | axum mock of the backend (`cargo run -p mock-backend`) |
 
 ## Adding a feature
 
