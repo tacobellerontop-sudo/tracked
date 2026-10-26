@@ -202,7 +202,16 @@ fn every_round_of_a_full_match_holds_together() {
             }
         }
         // A defuse only ever follows a plant.
-        let kinds: Vec<FrameKind> = r.frames.iter().map(|f| f.kind).filter(|k| *k != FrameKind::Kill).collect();
-        assert!(kinds.is_empty() || kinds[0] == FrameKind::Plant, "round {}: {kinds:?}", r.num);
+        let kinds: Vec<FrameKind> = r
+            .frames
+            .iter()
+            .map(|f| f.kind)
+            .filter(|k| *k != FrameKind::Kill)
+            .collect();
+        assert!(
+            kinds.is_empty() || kinds[0] == FrameKind::Plant,
+            "round {}: {kinds:?}",
+            r.num
+        );
     }
 }

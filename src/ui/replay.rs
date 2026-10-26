@@ -798,7 +798,12 @@ fn feed(ui: &mut Ui, state: &mut AppState, m: &MatchReplay, cat: &Catalog, mine:
 }
 
 /// A kill-feed line: time, frame to jump to, and either a kill or a spike event.
-type FeedRow<'a> = (u32, Option<usize>, Option<&'a crate::replay::FeedEntry>, Option<&'a Frame>);
+type FeedRow<'a> = (
+    u32,
+    Option<usize>,
+    Option<&'a crate::replay::FeedEntry>,
+    Option<&'a Frame>,
+);
 
 fn legend(ui: &mut Ui, p: &Palette) {
     let item = |ui: &mut Ui, color: Color32, label: &str| {
