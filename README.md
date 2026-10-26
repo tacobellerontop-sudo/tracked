@@ -12,6 +12,13 @@ A lightweight, native desktop companion for VALORANT, written in Rust with
 - **Lookup:** another player's rank and recent matches
 - **Crosshairs:** paste or build a crosshair code, preview it, save presets, copy
 
+![Live roster](docs/screenshots/live.png)
+
+More: [career](docs/screenshots/career.png) · [match detail](docs/screenshots/match-detail.png) ·
+[lookup](docs/screenshots/lookup.png) · [crosshairs](docs/screenshots/crosshairs.png) ·
+[social](docs/screenshots/social.png). Screenshots are from `--demo` mode with synthetic
+data; in normal use, agent, map and rank artwork from valorant-api.com shows next to each row.
+
 ## ⚠️ Disclaimer
 
 **Ascend-Lite is an unofficial third-party tool. It is not affiliated with, endorsed,
