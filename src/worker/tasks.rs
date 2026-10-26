@@ -283,22 +283,6 @@ pub async fn load_match(ctx: &Arc<Ctx>, id: &str) -> Result<Arc<MatchDetail>, Ap
     Ok(detail)
 }
 
-/// Seed the name cache with the friend list so lookups can find friends.
-pub async fn seed_friend_names(ctx: Arc<Ctx>) {
-    let Ok(s) = ctx.session() else { return };
-    if let Ok(f) = s.local.friends().await {
-        for fr in f.friends {
-            ctx.names.insert(
-                &fr.puuid,
-                RiotId {
-                    game_name: fr.game_name,
-                    tag_line: fr.game_tag,
-                },
-            );
-        }
-    }
-}
-
 pub async fn save_settings(ctx: Arc<Ctx>, settings: Settings) {
     *ctx.settings.lock().unwrap() = settings.clone();
     let res = tokio::task::spawn_blocking(move || crate::config::save(&settings)).await;

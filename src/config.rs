@@ -14,6 +14,16 @@ pub enum Theme {
     Dark,
 }
 
+/// Which renderer to use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum RendererPref {
+    /// GPU via wgpu (Direct3D 12 / Vulkan), falling back to OpenGL.
+    #[default]
+    Auto,
+    /// OpenGL only (for drivers where wgpu misbehaves).
+    OpenGl,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CrosshairPreset {
     pub name: String,
@@ -39,6 +49,10 @@ pub struct Settings {
     pub share_lobby: bool,
     pub disclaimer_accepted: bool,
     pub check_for_updates: bool,
+    /// Renderer preference (takes effect on restart).
+    pub renderer: RendererPref,
+    /// Interface animations (page fades, sliding highlights, count-ups).
+    pub animations: bool,
     /// GitHub "latest release" API URL (or any JSON with a `tag_name`).
     pub update_url: String,
 }
@@ -57,6 +71,8 @@ impl Default for Settings {
             share_lobby: false,
             disclaimer_accepted: false,
             check_for_updates: true,
+            renderer: RendererPref::Auto,
+            animations: true,
             update_url: DEFAULT_UPDATE_URL.to_string(),
         }
     }

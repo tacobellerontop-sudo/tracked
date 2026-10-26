@@ -3,6 +3,7 @@
 pub mod career;
 pub mod connection;
 pub mod crosshairs;
+pub mod friends;
 pub mod home;
 pub mod icons;
 pub mod live;
@@ -16,7 +17,7 @@ pub mod widgets;
 
 use egui::{pos2, vec2, Align, Align2, Color32, CornerRadius, FontId, Layout, Rect, RichText, Sense, Shape, Stroke};
 
-use crate::app::{AppState, Screen, Toast};
+use crate::app::{AppState, Screen, SocialTab, Toast};
 use crate::backend::models::MinVersionState;
 use crate::config::Theme;
 use crate::ipc::{BackendStatus, ClientStatus, Intent, IntentTx};
@@ -56,8 +57,8 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState, intents: &IntentTx) {
         connection::startup(ctx, state, intents);
         return;
     }
-    let social_on = state.social.status != BackendStatus::Disabled;
-    let visible = |s: &Screen| *s != Screen::Social || social_on;
+    // Social is always available: built-in friends come from the Riot Client itself.
+    let visible = |_: &Screen| true;
 
     // Ctrl+<n> switches screens.
     for (screen, _, _, key) in NAV.iter().filter(|n| visible(&n.0)) {
@@ -89,10 +90,26 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState, intents: &IntentTx) {
             ui.add_space(14.0);
             // Social manages its own scroll areas (friends, conversations, messages).
             if state.screen == Screen::Social {
-                theme::card(ui, None, |ui| social::ui(ui, state, intents));
+                social_screen(ui, state, intents);
                 return;
             }
+            // Page fade-in when the screen changes.
+            let now = ui.input(|i| i.time);
+            if state.last_screen != Some(state.screen) {
+                state.last_screen = Some(state.screen);
+                state.screen_since = now;
+            }
+            let fade = if theme::animations(ui.ctx()) {
+                theme::ease(((now - state.screen_since) / 0.25) as f32)
+            } else {
+                1.0
+            };
+            if fade < 1.0 {
+                ui.ctx().request_repaint();
+            }
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                ui.multiply_opacity(fade);
+                ui.add_space((1.0 - fade) * 10.0);
                 ui.spacing_mut().item_spacing.y = 16.0;
                 match state.screen {
                     Screen::Home => home::ui(ui, state, intents),
@@ -117,39 +134,71 @@ fn sidebar(ui: &mut egui::Ui, state: &mut AppState, visible: &dyn Fn(&Screen) ->
         let (r, _) = ui.allocate_exact_size(vec2(30.0, 30.0), Sense::hover());
         icons::logo(ui.painter(), r, p.accent);
         ui.add_space(4.0);
-        ui.label(RichText::new("A S C E N D").size(13.0).color(p.text));
+        ui.label(RichText::new("A S C E N D").font(theme::semibold(13.0)).color(p.text));
     });
     ui.add_space(30.0);
 
+    // The selected-item highlight is painted first (into a reserved slot)
+    // and glides to the selected item.
+    let highlight = ui.painter().add(Shape::Noop);
+    let mut selected_rect = None;
+    let unread = state.riot_social.unread_total();
     for (screen, label, icon, _) in NAV.iter().filter(|n| visible(&n.0)) {
         let selected = state.screen == *screen || (state.screen == Screen::MatchDetail && state.return_to == *screen);
-        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 42.0), Sense::click());
-        if selected || resp.hovered() {
-            let fill = if selected {
-                p.selected
-            } else {
-                p.selected.gamma_multiply(0.5)
-            };
-            ui.painter().rect_filled(rect, CornerRadius::same(10), fill);
-        }
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
         if selected {
-            let bar = Rect::from_min_size(rect.left_top() + vec2(0.0, 10.0), vec2(3.0, rect.height() - 20.0));
-            ui.painter().rect_filled(bar, CornerRadius::same(2), p.accent);
+            selected_rect = Some(rect);
         }
-        let color = if selected { p.text } else { p.weak };
-        let ic = Rect::from_center_size(rect.left_center() + vec2(24.0, 0.0), vec2(18.0, 18.0));
-        icons::paint(ui.painter(), ic, color, *icon);
+        let target = if resp.hovered() && !selected { 1.0 } else { 0.0 };
+        let hover = theme::glide(ui.ctx(), resp.id.with("hover"), target, 0.12);
+        if hover > 0.0 {
+            ui.painter()
+                .rect_filled(rect, CornerRadius::same(12), p.selected.gamma_multiply(0.55 * hover));
+        }
+        let color = if selected {
+            p.text
+        } else {
+            p.weak.lerp_to_gamma(p.text, hover * 0.6)
+        };
+        let ic = Rect::from_center_size(rect.left_center() + vec2(22.0, 0.0), vec2(18.0, 18.0));
+        icons::paint(ui.painter(), ic, if selected { p.accent } else { color }, *icon);
+        let font = if selected {
+            theme::semibold(13.5)
+        } else {
+            theme::medium(13.5)
+        };
         ui.painter().text(
-            rect.left_center() + vec2(48.0, 0.0),
+            rect.left_center() + vec2(44.0, 0.0),
             Align2::LEFT_CENTER,
             *label,
-            FontId::proportional(13.5),
+            font,
             color,
         );
+        if *screen == Screen::Social && unread > 0 {
+            let c = rect.right_center() - vec2(18.0, 0.0);
+            ui.painter().circle_filled(c, 9.0, p.accent);
+            ui.painter().text(
+                c,
+                Align2::CENTER_CENTER,
+                unread.min(99).to_string(),
+                theme::semibold(10.0),
+                Color32::WHITE,
+            );
+        }
         if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
             state.screen = *screen;
         }
         ui.add_space(2.0);
+    }
+    if let Some(r) = selected_rect {
+        let y = theme::glide(ui.ctx(), egui::Id::new("nav-highlight"), r.top(), 0.22);
+        let rect = Rect::from_min_size(pos2(r.left(), y), r.size());
+        let bar = Rect::from_min_size(rect.left_top() + vec2(0.0, 11.0), vec2(3.0, rect.height() - 22.0));
+        let shapes = vec![
+            Shape::rect_filled(rect, CornerRadius::same(12), p.selected),
+            Shape::rect_filled(bar, CornerRadius::same(2), p.accent),
+        ];
+        ui.painter().set(highlight, Shape::Vec(shapes));
     }
 
     // Bottom: tagline, decorative shards, profile chip.
@@ -418,4 +467,26 @@ fn disclaimer_body(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) 
             state.save_settings(intents);
         }
     });
+}
+
+/// Social: built-in Riot friends and whispers, plus the optional Ascend backend tab.
+fn social_screen(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
+    let backend_on = state.social.status != BackendStatus::Disabled;
+    if !backend_on {
+        state.riot_social.tab = SocialTab::Friends;
+    }
+    if backend_on {
+        ui.horizontal(|ui| {
+            for (tab, label) in [(SocialTab::Friends, "Riot friends"), (SocialTab::Ascend, "Ascend")] {
+                if theme::pill(ui, label, state.riot_social.tab == tab).clicked() {
+                    state.riot_social.tab = tab;
+                }
+            }
+        });
+        ui.add_space(10.0);
+    }
+    match state.riot_social.tab {
+        SocialTab::Friends => theme::card(ui, None, |ui| friends::ui(ui, state, intents)),
+        SocialTab::Ascend => theme::card(ui, None, |ui| social::ui(ui, state, intents)),
+    }
 }

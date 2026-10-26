@@ -9,6 +9,7 @@
 //! * consumes [`riot::watch`] for live game state.
 
 pub mod demo;
+pub mod friends;
 pub mod social;
 pub mod tasks;
 
@@ -132,7 +133,7 @@ pub async fn run(mut intents: IntentRx, sink: UpdateSink, settings: Settings) {
 
 impl Supervisor {
     fn handle(&mut self, intent: Intent) {
-        if social::handle(&self.ctx, &intent) {
+        if social::handle(&self.ctx, &intent) || friends::handle(&self.ctx, &intent) {
             return;
         }
         let ctx = self.ctx.clone();
@@ -332,7 +333,7 @@ impl Supervisor {
                 }
             }
         }));
-        tokio::spawn(tasks::seed_friend_names(self.ctx.clone()));
+        tokio::spawn(friends::refresh(self.ctx.clone()));
         tokio::spawn(tasks::refresh_career(self.ctx.clone()));
     }
 
@@ -402,6 +403,11 @@ impl Supervisor {
                     "Event stream unavailable, checking every few seconds instead ({why})"
                 )),
             ),
+            WatchEvent::Presences(list) => {
+                let me = self.ctx.session().map(|s| s.puuid.clone()).unwrap_or_default();
+                self.ctx.sink.send(Update::RiotStatuses(friends::statuses(&list, &me)));
+            }
+            WatchEvent::Chat(msgs) => self.ctx.sink.send(Update::RiotChat(msgs)),
             WatchEvent::State { state, presence } => {
                 if state == GameState::Offline {
                     // Maybe the client is closing: check right away.

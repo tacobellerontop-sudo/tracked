@@ -165,6 +165,7 @@ other. `tests/social_e2e.rs` runs the real worker against it in-process.
 | `riot/pd.rs` | MMR, competitive updates, history, details, rank snapshot, rank probe |
 | `riot/glz.rs` | party / pregame / core-game → `LiveMatch` |
 | `riot/presence.rs` | presence blob decode |
+| `riot/chat.rs` | local chat API: friends, requests, conversations, history, send; friend status decode |
 | `riot/names.rs` | batched PUUID → Riot ID with cache |
 | `riot/match_stats.rs` | raw match → `MatchDetail` with derived stats (KAST, trades, clutches…) |
 | `riot/account.rs` | optional official account-v1 lookup (`RIOT_API_KEY`) |
@@ -177,7 +178,8 @@ other. `tests/social_e2e.rs` runs the real worker against it in-process.
 | `backend/social_ws.rs` | social websocket protocol + session task |
 | `backend/models.rs` | backend wire types, `MinVersionState` |
 | `worker/social.rs` | backend lifecycle, socket supervision, DM/feedback intents |
-| `ui/*` | one module per screen + shared widgets |
+| `worker/friends.rs` | built-in Riot friends/whispers intents (message bodies are never logged) |
+| `ui/*` | one module per screen + shared widgets; `ui/theme.rs` holds fonts (Inter, Phosphor icons), palettes and animation helpers |
 | `mock-backend/` | axum mock of the backend (`cargo run -p mock-backend`) |
 
 ## Adding a feature
@@ -187,3 +189,12 @@ other. `tests/social_e2e.rs` runs the real worker against it in-process.
 2. Write the async routine in `worker/tasks.rs`, sending results through `ctx.sink`.
 3. Dispatch it in `Supervisor::handle` (and in `worker/demo.rs` if it should demo).
 4. Apply the `Update` in `AppState::apply`, then draw it in a `ui/` module.
+
+## Rendering
+
+`main.rs` starts eframe with the wgpu renderer (Direct3D 12 on Windows, Vulkan elsewhere).
+winit can't create a second event loop in one process, so if wgpu fails the app relaunches
+itself with `--opengl`. Settings → Renderer can force OpenGL. The active adapter is shown
+in Settings. Text uses Inter (SIL OFL, `assets/fonts/Inter-LICENSE.txt`); icons use
+Phosphor (MIT, via `egui-phosphor`) in their own `icons` font family, because Inter and
+Phosphor both define glyphs in the private-use area.

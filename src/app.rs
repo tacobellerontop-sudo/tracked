@@ -35,6 +35,69 @@ pub enum Screen {
     Connection,
 }
 
+/// Which Social tab is open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SocialTab {
+    /// Riot friends + whispers (built in).
+    #[default]
+    Friends,
+    /// The optional Ascend backend.
+    Ascend,
+}
+
+/// Built-in social: Riot friends, their live status, whispers.
+#[derive(Default)]
+pub struct RiotSocial {
+    pub requested: bool,
+    pub loaded: bool,
+    pub friends: Vec<crate::riot::chat::Friend>,
+    pub requests: Vec<crate::riot::chat::FriendRequest>,
+    pub statuses: HashMap<String, crate::riot::chat::FriendStatus>,
+    /// Unread whisper counts by cid.
+    pub unread: HashMap<String, u32>,
+    pub messages: HashMap<String, Vec<crate::riot::chat::ChatMessage>>,
+    /// Open conversation (cid = the friend's pid).
+    pub open: Option<String>,
+    pub drafts: HashMap<String, String>,
+    pub sending: HashMap<String, bool>,
+    pub filter: String,
+    pub show_offline: bool,
+    pub show_requests: bool,
+    pub tab: SocialTab,
+}
+
+impl RiotSocial {
+    pub fn unread_total(&self) -> u32 {
+        self.unread.values().sum()
+    }
+
+    pub fn friend_by_cid(&self, cid: &str) -> Option<&crate::riot::chat::Friend> {
+        self.friends.iter().find(|f| f.pid == cid)
+    }
+
+    /// Merge new messages; count unread for whispers that aren't open.
+    pub fn on_messages(&mut self, msgs: Vec<crate::riot::chat::ChatMessage>, me: &str) {
+        for m in msgs {
+            if m.kind != "chat" {
+                continue; // party / team chats aren't shown
+            }
+            let list = self.messages.entry(m.cid.clone()).or_default();
+            if list.iter().any(|x| x.id == m.id && !m.id.is_empty()) {
+                continue;
+            }
+            if m.puuid != me && self.open.as_deref() != Some(m.cid.as_str()) {
+                *self.unread.entry(m.cid.clone()).or_default() += 1;
+            }
+            if m.puuid == me {
+                // Our own message came back: clear the "sending" state.
+                self.sending.remove(&m.cid);
+            }
+            list.push(m);
+            list.sort_by_key(|x| x.time_ms());
+        }
+    }
+}
+
 /// Everything the Social screen shows (Phase 3, optional backend).
 pub struct SocialState {
     pub status: BackendStatus,
@@ -200,10 +263,16 @@ pub struct AppState {
     /// Top-bar search text (filters Matches / Agents; Name#TAG looks up).
     pub search: String,
     pub social: SocialState,
+    pub riot_social: RiotSocial,
     pub toasts: Vec<Toast>,
     pub pending_toasts: Vec<String>,
     pub settings: Settings,
     pub last_pong: Option<u64>,
+    /// "GPU · <adapter> (<backend>)", shown in Settings.
+    pub renderer: String,
+    /// When the current screen was opened (drives the page fade-in).
+    pub screen_since: f64,
+    pub last_screen: Option<Screen>,
     /// Step-by-step connection status from the worker.
     pub connection: crate::diagnostics::ConnectionReport,
     /// False while the startup screen is showing.
@@ -218,6 +287,9 @@ impl AppState {
             screen: Screen::Home,
             status: ClientStatus::NotRunning,
             connection: Default::default(),
+            renderer: String::new(),
+            screen_since: 0.0,
+            last_screen: None,
             startup_done: false,
             connected_since: None,
             catalog: Arc::new(Catalog::default()),
@@ -237,6 +309,7 @@ impl AppState {
             home_range: crate::stats::Range::Days30,
             search: String::new(),
             social: SocialState::new(settings.backend_url.clone()),
+            riot_social: RiotSocial::default(),
             toasts: Vec::new(),
             pending_toasts: Vec::new(),
             settings,
@@ -296,6 +369,35 @@ impl AppState {
             }
             Update::UpdateStatus(s) => self.update_status = Some(s),
             Update::Notice(n) => self.pending_toasts.push(n),
+            Update::RiotFriends { friends, requests } => {
+                let rs = &mut self.riot_social;
+                rs.friends = friends;
+                rs.friends.sort_by_key(|f| f.game_name.to_lowercase());
+                rs.requests = requests;
+                rs.loaded = true;
+            }
+            Update::RiotConversations(convs) => {
+                for c in convs.into_iter().filter(|c| c.kind == "chat") {
+                    if c.unread_count > 0 && self.riot_social.open.as_deref() != Some(c.cid.as_str()) {
+                        self.riot_social.unread.insert(c.cid, c.unread_count);
+                    }
+                }
+            }
+            Update::RiotStatuses(list) => self.riot_social.statuses.extend(list),
+            Update::RiotChatHistory { cid, messages } => {
+                let me = self.self_puuid().unwrap_or_default().to_string();
+                self.riot_social.messages.remove(&cid);
+                self.riot_social.on_messages(messages, &me);
+                self.riot_social.unread.remove(&cid);
+            }
+            Update::RiotChat(msgs) => {
+                let me = self.self_puuid().unwrap_or_default().to_string();
+                self.riot_social.on_messages(msgs, &me);
+            }
+            Update::RiotChatFailed { cid, reason } => {
+                self.riot_social.sending.remove(&cid);
+                self.pending_toasts.push(format!("Message not sent: {reason}"));
+            }
             Update::Backend(st) => {
                 if !matches!(st, BackendStatus::SignedIn(_)) {
                     // Drop per-user data, but keep what describes the backend itself.
@@ -395,9 +497,18 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(settings: Settings, intents: IntentTx, updates: UpdateRx, worker: std::thread::JoinHandle<()>) -> Self {
+    pub fn new(
+        settings: Settings,
+        intents: IntentTx,
+        updates: UpdateRx,
+        worker: std::thread::JoinHandle<()>,
+        renderer: String,
+    ) -> Self {
         Self {
-            state: AppState::new(settings),
+            state: AppState {
+                renderer,
+                ..AppState::new(settings)
+            },
             intents,
             updates,
             worker: Some(worker),
@@ -415,6 +526,7 @@ impl eframe::App for App {
             crate::ui::theme::apply(ctx, self.state.settings.theme);
             self.applied_theme = Some(self.state.settings.theme);
         }
+        crate::ui::theme::set_animations(ctx, self.state.settings.animations);
         if let Some(rect) = ctx.input(|i| i.viewport().inner_rect) {
             self.state.settings.window_size = [rect.width(), rect.height()];
         }

@@ -241,6 +241,26 @@ impl LocalClient {
         }
     }
 
+    /// POST JSON to a local endpoint (used for sending whispers). Not retried:
+    /// a retry after a timeout could send a message twice.
+    pub async fn post<B: serde::Serialize, T: DeserializeOwned>(&self, path: &str, body: &B) -> Result<T, ApiError> {
+        debug_assert!(path.starts_with('/'));
+        let http = self.http.read().unwrap().1.clone();
+        let resp = http
+            .post(format!("{}{}", self.auth.base, path))
+            .header(reqwest::header::AUTHORIZATION, self.auth.header())
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| ApiError::Network(crate::error::chain(&e.without_url())))?;
+        match resp.status().as_u16() {
+            200..=299 => Ok(resp.json().await?),
+            401 | 403 => Err(ApiError::Unauthorized),
+            404 => Err(ApiError::NotFound),
+            s => Err(ApiError::Status(s)),
+        }
+    }
+
     async fn get_once<T: DeserializeOwned>(&self, path: &str) -> Result<T, ApiError> {
         let http = self.http.read().unwrap().1.clone();
         let resp = http

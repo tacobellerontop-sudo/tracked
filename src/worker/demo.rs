@@ -395,8 +395,135 @@ pub async fn run(mut intents: IntentRx, ctx: Arc<Ctx>) {
                 }));
             }
             Intent::SaveSettings(s) => tasks::save_settings(ctx.clone(), s).await,
+            Intent::RiotSocialRefresh => social::refresh(&ctx),
+            Intent::RiotChatOpen(cid) => social::open(&ctx, &cid),
+            Intent::RiotChatSend { cid, text } => social::send(&ctx, cid, text),
             Intent::Shutdown => break,
             _ => {}
         }
+    }
+}
+
+/// Built-in social in demo mode: synthetic friends, presences and whispers.
+mod social {
+    use super::*;
+    use crate::riot::chat::{Activity, ChatMessage, Conversation, Friend, FriendRequest, FriendStatus};
+
+    fn pid(i: usize) -> String {
+        format!("{}@eu1.pvp.net", puuid(i))
+    }
+
+    fn tag(i: usize) -> String {
+        format!("{}", 1000 + i * 7)
+    }
+
+    fn message(id: u64, from: usize, cid: &str, body: &str, ago_ms: i64) -> ChatMessage {
+        ChatMessage {
+            id: format!("demo-{id}"),
+            cid: cid.to_string(),
+            body: body.to_string(),
+            puuid: puuid(from),
+            game_name: NAMES[from].to_string(),
+            game_tag: tag(from),
+            time: (demo_now_ms() - ago_ms).to_string(),
+            read: true,
+            kind: "chat".into(),
+        }
+    }
+
+    pub fn refresh(ctx: &Ctx) {
+        let friends = (1..10)
+            .map(|i| Friend {
+                puuid: puuid(i),
+                pid: pid(i),
+                game_name: NAMES[i].to_string(),
+                game_tag: tag(i),
+                note: String::new(),
+                last_online_ts: Some(demo_now_ms() - (i as i64) * 3_600_000),
+            })
+            .collect();
+        let requests = vec![FriendRequest {
+            puuid: puuid(42),
+            game_name: "Marigold".into(),
+            game_tag: "EUW".into(),
+            subscription: "pending_in".into(),
+        }];
+        ctx.sink.send(Update::RiotFriends { friends, requests });
+        ctx.sink.send(Update::RiotConversations(vec![Conversation {
+            cid: pid(1),
+            kind: "chat".into(),
+            unread_count: 1,
+            muted: false,
+        }]));
+        let activities = [
+            (1, Activity::InGame, "competitive", "Ascent", Some((9, 7))),
+            (2, Activity::Menus, "unrated", "", None),
+            (3, Activity::InQueue, "competitive", "", None),
+            (4, Activity::AgentSelect, "swiftplay", "Lotus", None),
+            (5, Activity::Away, "", "", None),
+            (6, Activity::OtherGame("League of Legends".into()), "", "", None),
+        ];
+        let statuses = activities
+            .into_iter()
+            .map(|(i, activity, queue, map, score)| {
+                let status = FriendStatus {
+                    activity,
+                    queue_id: queue.into(),
+                    map: map.into(),
+                    party_size: 1 + (i as u32 % 3),
+                    competitive_tier: 9 + i as u32 * 2,
+                    account_level: 40 + i as u32 * 31,
+                    player_card_id: String::new(),
+                    score,
+                };
+                (puuid(i), status)
+            })
+            .collect();
+        ctx.sink.send(Update::RiotStatuses(statuses));
+        // An unread whisper so the badge shows.
+        ctx.sink.send(Update::RiotChat(vec![message(
+            100,
+            1,
+            &pid(1),
+            "gg, queue again after this one?",
+            90_000,
+        )]));
+    }
+
+    pub fn open(ctx: &Ctx, cid: &str) {
+        let Some(i) = (1..10).find(|i| pid(*i) == cid) else {
+            return;
+        };
+        let mut messages = vec![
+            message(1, i, cid, "you on tonight?", 26 * 3_600_000),
+            message(2, 0, cid, "yeah, after 8", 26 * 3_600_000 - 60_000),
+            message(3, i, cid, "bet. bringing a fifth", 26 * 3_600_000 - 120_000),
+        ];
+        if i == 1 {
+            messages.push(message(100, 1, cid, "gg, queue again after this one?", 90_000));
+        }
+        ctx.sink.send(Update::RiotChatHistory {
+            cid: cid.to_string(),
+            messages,
+        });
+    }
+
+    pub fn send(ctx: &Arc<Ctx>, cid: String, text: String) {
+        let Some(i) = (1..10).find(|i| pid(*i) == cid) else {
+            return;
+        };
+        let n = demo_now_ms() as u64;
+        ctx.sink.send(Update::RiotChat(vec![message(n, 0, &cid, &text, 0)]));
+        let ctx = ctx.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+            ctx.sink.send(Update::RiotChat(vec![message(
+                n + 1,
+                i,
+                &cid,
+                "say less, inviting you now",
+                0,
+            )]));
+        });
     }
 }

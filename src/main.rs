@@ -1,30 +1,65 @@
 // Release builds are a GUI app: no console window on Windows (logs go to the log file).
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use ascend_lite::{app::App, config, ipc, logging, worker};
+use ascend_lite::config::{self, RendererPref, Settings};
+use ascend_lite::{app::App, ipc, logging, worker};
 
-fn main() -> eframe::Result<()> {
-    let debug = std::env::args().any(|a| a == "--debug");
-    let demo = std::env::args().any(|a| a == "--demo");
-    let _log_guard = logging::init(debug);
-    tracing::info!(version = env!("CARGO_PKG_VERSION"), "starting ascend-lite");
-
-    let settings = config::load();
-    let options = eframe::NativeOptions {
+fn options(settings: &Settings, renderer: eframe::Renderer) -> eframe::NativeOptions {
+    eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Ascend-Lite")
             .with_inner_size(settings.window_size)
             .with_min_inner_size([1000.0, 660.0]),
+        renderer,
+        vsync: true,
         ..Default::default()
-    };
+    }
+}
+
+fn run(settings: Settings, demo: bool, renderer: eframe::Renderer) -> eframe::Result<()> {
     eframe::run_native(
         "Ascend-Lite",
-        options,
+        options(&settings, renderer),
         Box::new(move |cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
+            ascend_lite::ui::theme::install_fonts(&cc.egui_ctx);
+            let gpu = ascend_lite::ui::theme::describe_renderer(cc);
+            tracing::info!(renderer = %gpu, "renderer ready");
             let (intent_tx, intent_rx, sink, update_rx) = ipc::channels(cc.egui_ctx.clone());
             let handle = worker::spawn_mode(intent_rx, sink, settings.clone(), demo);
-            Ok(Box::new(App::new(settings, intent_tx, update_rx, handle)))
+            Ok(Box::new(App::new(settings, intent_tx, update_rx, handle, gpu)))
         }),
     )
+}
+
+fn main() -> eframe::Result<()> {
+    let debug = std::env::args().any(|a| a == "--debug");
+    let demo = std::env::args().any(|a| a == "--demo");
+    let force_gl = std::env::args().any(|a| a == "--opengl");
+    let _log_guard = logging::init(debug);
+    tracing::info!(version = env!("CARGO_PKG_VERSION"), "starting ascend-lite");
+
+    let settings = config::load();
+    if force_gl || settings.renderer == RendererPref::OpenGl {
+        return run(settings, demo, eframe::Renderer::Glow);
+    }
+    // GPU via wgpu (Direct3D 12 / Vulkan). winit can't create a second event
+    // loop in one process, so the OpenGL fallback relaunches the app.
+    match run(settings, demo, eframe::Renderer::Wgpu) {
+        Err(e) => {
+            tracing::warn!("wgpu renderer failed ({e}); relaunching with OpenGL");
+            relaunch_with_opengl().map_err(|_| e)
+        }
+        ok => ok,
+    }
+}
+
+/// Run this executable again with `--opengl` and wait for it.
+fn relaunch_with_opengl() -> std::io::Result<()> {
+    let exe = std::env::current_exe()?;
+    let status = std::process::Command::new(exe)
+        .args(std::env::args_os().skip(1))
+        .arg("--opengl")
+        .status()?;
+    std::process::exit(status.code().unwrap_or(1));
 }

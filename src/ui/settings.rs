@@ -2,7 +2,7 @@
 
 use super::widgets;
 use crate::app::AppState;
-use crate::config::{Theme, MAX_POLL_SECS, MIN_POLL_SECS};
+use crate::config::{RendererPref, Theme, MAX_POLL_SECS, MIN_POLL_SECS};
 use crate::ipc::{Intent, IntentTx, UpdateStatus};
 
 pub fn ui(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
@@ -18,6 +18,29 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
             ui.horizontal(|ui| {
                 ui.radio_value(&mut state.settings.theme, Theme::Dark, "Dark");
                 ui.radio_value(&mut state.settings.theme, Theme::Light, "Light");
+            });
+            ui.end_row();
+
+            ui.label("Animations");
+            ui.checkbox(&mut state.settings.animations, "Smooth transitions and motion");
+            ui.end_row();
+
+            ui.label("Renderer");
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut state.settings.renderer,
+                        RendererPref::Auto,
+                        "GPU (Direct3D 12 / Vulkan)",
+                    )
+                    .on_hover_text("Uses wgpu; falls back to OpenGL automatically if it can't start.");
+                    ui.radio_value(&mut state.settings.renderer, RendererPref::OpenGl, "OpenGL");
+                });
+                ui.label(
+                    egui::RichText::new(format!("Now: {} · changes apply after a restart", state.renderer))
+                        .small()
+                        .weak(),
+                );
             });
             ui.end_row();
 
@@ -76,10 +99,10 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
 }
 
 fn social_settings(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
-    ui.label(egui::RichText::new("Social (optional)").strong());
+    ui.label(egui::RichText::new("Ascend backend (optional)").strong());
     ui.weak(
-        "Friends, presence and messages need an Ascend-compatible backend. The tracker works without one. \
-         Riot credentials are never sent to the backend.",
+        "Your Riot friends and whispers work without this (Social tab). A backend adds Ascend-only \
+         friends, lobbies and DMs. Riot credentials are never sent to the backend.",
     );
     ui.horizontal(|ui| {
         ui.label("Backend URL");

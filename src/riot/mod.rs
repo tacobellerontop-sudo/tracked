@@ -12,6 +12,7 @@
 
 pub mod account;
 pub mod auth;
+pub mod chat;
 pub mod error;
 pub mod glz;
 pub mod local;

@@ -67,6 +67,16 @@ pub enum Intent {
     },
     DmTyping(String),
     SendFeedback(String),
+
+    // ---- built-in social via the Riot Client's chat (no backend needed)
+    /// Reload friends, friend requests, conversations and presences.
+    RiotSocialRefresh,
+    /// Load the whisper history with a friend (cid = their pid).
+    RiotChatOpen(String),
+    RiotChatSend {
+        cid: String,
+        text: String,
+    },
     Shutdown,
 }
 
@@ -198,6 +208,24 @@ pub enum Update {
     },
     /// A short success message for the toast area.
     Notice(String),
+    RiotFriends {
+        friends: Vec<crate::riot::chat::Friend>,
+        requests: Vec<crate::riot::chat::FriendRequest>,
+    },
+    RiotConversations(Vec<crate::riot::chat::Conversation>),
+    /// (puuid, status) for players whose presence changed.
+    RiotStatuses(Vec<(String, crate::riot::chat::FriendStatus)>),
+    RiotChatHistory {
+        cid: String,
+        messages: Vec<crate::riot::chat::ChatMessage>,
+    },
+    /// New messages (incoming or just sent).
+    RiotChat(Vec<crate::riot::chat::ChatMessage>),
+    /// Sending a whisper failed (cid, reason); the draft is kept.
+    RiotChatFailed {
+        cid: String,
+        reason: String,
+    },
     Career(CareerSummary),
     MatchDetails(MatchId, Arc<MatchDetail>),
     Error(UserFacingError),

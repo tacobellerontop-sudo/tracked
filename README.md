@@ -14,12 +14,17 @@ A lightweight, native desktop companion for VALORANT, written in Rust with
   multi-kills, plants/defuses) and a round-by-round strip
 - **Lookup:** another player's rank and recent matches
 - **Crosshairs:** paste or build a crosshair code, preview it, save presets, copy
+- **Social:** your Riot friends list with live status (in queue, agent select, in a match
+  with the score, other Riot games), unread badges and whispers, all through the Riot
+  Client's own chat. No account or backend needed
+- **GPU rendering:** wgpu (Direct3D 12 / Vulkan), falling back to OpenGL automatically
 
 ![Home dashboard](docs/screenshots/home.png)
 
 More: [home, lower half](docs/screenshots/home-bottom.png) · [dark mode](docs/screenshots/home-dark.png) ·
 [agents](docs/screenshots/agents.png) · [live lobby](docs/screenshots/live.png) ·
-[match detail](docs/screenshots/match-detail.png) · [startup check](docs/screenshots/startup.png).
+[match detail](docs/screenshots/match-detail.png) · [startup check](docs/screenshots/startup.png) ·
+[friends & whispers](docs/screenshots/friends.png).
 Screenshots are from `--demo` mode with synthetic data and no artwork; in normal use your
 player card, agent, map and rank art load from valorant-api.com.
 
@@ -65,6 +70,7 @@ Requires a stable Rust toolchain (2021 edition).
 cargo run --release            # normal mode: start VALORANT, then the app
 cargo run --release -- --demo  # synthetic data, no Riot client needed
 cargo run --release -- --debug # more verbose logging (secrets are still never logged)
+cargo run --release -- --opengl # skip wgpu and use OpenGL (also in Settings → Renderer)
 ```
 
 The target platform is **Windows** (where VALORANT runs). The app also builds and runs
@@ -116,7 +122,18 @@ Settings never contain credentials. Override with `ASCEND_CONFIG_DIR` / `ASCEND_
 | `RIOT_API_KEY` | Optional: search any Riot ID via Riot's official account API |
 | `ASCEND_OFFLINE_CONTENT` | Skip valorant-api.com (no artwork; used by tests) |
 
-## Social features (optional backend)
+## Riot friends & whispers (built in)
+
+The **Social** tab shows your Riot friends and lets you whisper them. It talks only to the
+Riot Client's local chat API on `127.0.0.1` (`/chat/v4/friends`, `/chat/v6/messages`, …) with the
+same lockfile credentials as everything else. Nothing goes to any other server.
+
+- Messages live in memory only. They are never logged or written to disk.
+- Friend requests are shown read-only; accept or decline them in the Riot Client.
+- No party invites or other in-game actions. The app reads state and sends whispers, nothing more.
+
+## Ascend backend social (optional)
+
 
 Friends, presence, lobbies and DMs need an Ascend-compatible backend, and are **off
 unless you set a backend URL** (Settings → Social). For local use there's an in-memory

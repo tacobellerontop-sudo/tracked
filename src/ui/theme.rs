@@ -1,7 +1,12 @@
 //! Look & feel: palettes for light (default) and dark, the egui style, and
 //! small building blocks (cards, pills, buttons, deltas) used by every screen.
 
-use egui::{Color32, CornerRadius, Frame, Margin, Response, RichText, Sense, Shadow, Stroke, Ui, Vec2};
+use std::sync::Arc;
+
+use egui::{
+    Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Frame, Margin, Response, RichText, Sense,
+    Shadow, Stroke, Ui, Vec2,
+};
 
 use crate::config::Theme;
 
@@ -74,6 +79,159 @@ fn palette_id() -> egui::Id {
     egui::Id::new("ascend-palette")
 }
 
+/// Inter (SIL Open Font License, see assets/fonts) for text, Phosphor for
+/// icons, egui's defaults as fallbacks (emoji, CJK, monospace).
+pub fn install_fonts(ctx: &egui::Context) {
+    let mut fonts = FontDefinitions::default();
+    let add = |fonts: &mut FontDefinitions, key: &str, bytes: &'static [u8]| {
+        fonts
+            .font_data
+            .insert(key.to_string(), Arc::new(FontData::from_static(bytes)));
+    };
+    add(
+        &mut fonts,
+        "inter",
+        include_bytes!("../../assets/fonts/Inter-Regular.ttf"),
+    );
+    add(
+        &mut fonts,
+        "inter-medium",
+        include_bytes!("../../assets/fonts/Inter-Medium.ttf"),
+    );
+    add(
+        &mut fonts,
+        "inter-semibold",
+        include_bytes!("../../assets/fonts/Inter-SemiBold.ttf"),
+    );
+    egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+    // Icons get their own family: Inter has private-use glyphs of its own and
+    // Phosphor has blank Latin ones, so neither can shadow the other.
+    fonts
+        .families
+        .insert(FontFamily::Name("icons".into()), vec!["phosphor".into()]);
+    let fallbacks: Vec<String> = fonts.families[&FontFamily::Proportional].clone();
+    for (family, key) in [
+        (FontFamily::Proportional, "inter"),
+        (FontFamily::Name("medium".into()), "inter-medium"),
+        (FontFamily::Name("semibold".into()), "inter-semibold"),
+    ] {
+        let mut list = vec![key.to_string()];
+        list.extend(fallbacks.iter().cloned());
+        fonts.families.insert(family, list);
+    }
+    ctx.set_fonts(fonts);
+}
+
+/// Font for Phosphor icon glyphs.
+pub fn icon_font(size: f32) -> FontId {
+    FontId::new(size, FontFamily::Name("icons".into()))
+}
+
+pub fn medium(size: f32) -> FontId {
+    FontId::new(size, FontFamily::Name("medium".into()))
+}
+
+pub fn semibold(size: f32) -> FontId {
+    FontId::new(size, FontFamily::Name("semibold".into()))
+}
+
+/// Human description of the active renderer, e.g.
+/// "GPU · NVIDIA GeForce RTX 3060 (Dx12)".
+pub fn describe_renderer(cc: &eframe::CreationContext<'_>) -> String {
+    if let Some(rs) = &cc.wgpu_render_state {
+        let info = rs.adapter.get_info();
+        let kind = match info.device_type {
+            eframe::wgpu::DeviceType::Cpu => "Software",
+            _ => "GPU",
+        };
+        return format!("{kind} · {} ({:?})", info.name, info.backend);
+    }
+    if let Some(gl) = &cc.gl {
+        use eframe::glow::HasContext;
+        // SAFETY: querying a string from a live GL context on the UI thread.
+        let name = unsafe { gl.get_parameter_string(eframe::glow::RENDERER) };
+        let software = ["llvmpipe", "softpipe", "swiftshader", "gdi generic", "basic render"]
+            .iter()
+            .any(|w| name.to_lowercase().contains(w));
+        let kind = if software { "Software" } else { "GPU" };
+        return format!("{kind} · {name} (OpenGL)");
+    }
+    "Unknown renderer".into()
+}
+
+fn anim_id() -> egui::Id {
+    egui::Id::new("ascend-animations")
+}
+
+/// Turn interface animations on or off (Settings).
+pub fn set_animations(ctx: &egui::Context, on: bool) {
+    ctx.data_mut(|d| d.insert_temp(anim_id(), on));
+}
+
+pub fn animations(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(anim_id())).unwrap_or(true)
+}
+
+/// Ease-out cubic.
+pub fn ease(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    1.0 - (1.0 - t).powi(3)
+}
+
+/// 0→1 progress of an "intro" animation keyed by `id` (restarts when `key`
+/// changes, e.g. a chart's range). Keeps repainting until finished.
+pub fn intro(ctx: &egui::Context, id: egui::Id, key: u64, seconds: f32) -> f32 {
+    if !animations(ctx) {
+        return 1.0;
+    }
+    let now = ctx.input(|i| i.time);
+    let start = ctx.data_mut(|d| {
+        let slot = d.get_temp_mut_or_insert_with(id, || (key, now));
+        if slot.0 != key {
+            *slot = (key, now);
+        }
+        slot.1
+    });
+    let t = ((now - start) as f32 / seconds).clamp(0.0, 1.0);
+    if t < 1.0 {
+        ctx.request_repaint();
+    }
+    ease(t)
+}
+
+/// Smoothly animate towards `target` (for sliding highlights, hovers).
+pub fn glide(ctx: &egui::Context, id: egui::Id, target: f32, seconds: f32) -> f32 {
+    if !animations(ctx) {
+        return target;
+    }
+    ctx.animate_value_with_time(id, target, seconds)
+}
+
+/// A loading placeholder with a moving sheen.
+pub fn skeleton(ui: &Ui, rect: egui::Rect, radius: u8) {
+    let p = pal(ui.ctx());
+    ui.painter().rect_filled(rect, CornerRadius::same(radius), p.well);
+    if !animations(ui.ctx()) {
+        return;
+    }
+    let t = (ui.input(|i| i.time) * 0.8).fract() as f32;
+    let band = rect.width() * 0.35;
+    let x = rect.left() - band + (rect.width() + band * 2.0) * t;
+    let sheen = egui::Rect::from_min_max(
+        egui::pos2(x.max(rect.left()), rect.top()),
+        egui::pos2((x + band).min(rect.right()), rect.bottom()),
+    );
+    if sheen.width() > 0.0 {
+        let c = if p.dark {
+            Color32::from_white_alpha(10)
+        } else {
+            Color32::from_white_alpha(90)
+        };
+        ui.painter().rect_filled(sheen, CornerRadius::same(radius), c);
+    }
+    ui.ctx().request_repaint();
+}
+
 /// The active palette (set by [`apply`]).
 pub fn pal(ctx: &egui::Context) -> Palette {
     ctx.data(|d| d.get_temp::<Palette>(palette_id())).unwrap_or(LIGHT)
@@ -127,18 +285,22 @@ pub fn apply(ctx: &egui::Context, theme: Theme) {
     ctx.set_visuals(v);
 
     ctx.style_mut(|s| {
-        use egui::{FontFamily, FontId, TextStyle};
+        use egui::TextStyle;
         s.text_styles = [
-            (TextStyle::Heading, FontId::new(20.0, FontFamily::Proportional)),
-            (TextStyle::Body, FontId::new(13.5, FontFamily::Proportional)),
-            (TextStyle::Button, FontId::new(13.0, FontFamily::Proportional)),
-            (TextStyle::Small, FontId::new(11.0, FontFamily::Proportional)),
-            (TextStyle::Monospace, FontId::new(12.5, FontFamily::Monospace)),
+            (
+                TextStyle::Heading,
+                FontId::new(20.0, FontFamily::Name("semibold".into())),
+            ),
+            (TextStyle::Body, FontId::new(13.0, FontFamily::Proportional)),
+            (TextStyle::Button, FontId::new(12.5, FontFamily::Name("medium".into()))),
+            (TextStyle::Small, FontId::new(10.5, FontFamily::Proportional)),
+            (TextStyle::Monospace, FontId::new(12.0, FontFamily::Monospace)),
         ]
         .into();
         s.spacing.item_spacing = Vec2::new(8.0, 6.0);
         s.spacing.button_padding = Vec2::new(10.0, 5.0);
-        s.spacing.interact_size.y = 24.0;
+        s.spacing.interact_size.y = 26.0;
+        s.animation_time = 0.18;
     });
 }
 
@@ -147,13 +309,13 @@ pub fn card_frame(p: &Palette) -> Frame {
     Frame::NONE
         .fill(p.card)
         .stroke(Stroke::new(1.0_f32, p.stroke))
-        .corner_radius(CornerRadius::same(14))
-        .inner_margin(Margin::same(18))
+        .corner_radius(CornerRadius::same(18))
+        .inner_margin(Margin::same(20))
         .shadow(Shadow {
-            offset: [0, 2],
-            blur: 12,
+            offset: [0, 6],
+            blur: 28,
             spread: 0,
-            color: Color32::from_black_alpha(if p.dark { 40 } else { 10 }),
+            color: Color32::from_black_alpha(if p.dark { 60 } else { 12 }),
         })
 }
 
@@ -178,7 +340,7 @@ pub fn card_title(ui: &mut Ui, title: &str, link: Option<&str>) -> bool {
     let p = pal(ui.ctx());
     let mut clicked = false;
     ui.horizontal(|ui| {
-        ui.label(RichText::new(title).size(15.0).color(p.text).strong());
+        ui.label(RichText::new(title).font(semibold(15.0)).color(p.text));
         if let Some(link) = link {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 clicked = link_button(ui, link).clicked();

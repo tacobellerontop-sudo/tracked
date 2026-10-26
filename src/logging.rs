@@ -14,7 +14,7 @@ use tracing_subscriber::{fmt, EnvFilter, Layer};
 pub fn filter(debug: bool) -> EnvFilter {
     let level = if debug { "debug" } else { "info" };
     EnvFilter::new(format!(
-        "{level},hyper=warn,hyper_util=warn,reqwest=warn,rustls=warn,tungstenite=warn,tokio_tungstenite=warn,ehttp=warn,winit=warn,eframe=warn,egui_glow=warn"
+        "{level},hyper=warn,hyper_util=warn,reqwest=warn,rustls=warn,tungstenite=warn,tokio_tungstenite=warn,ehttp=warn,winit=warn,eframe=warn,egui_glow=warn,egui-wgpu=warn,egui_wgpu=warn,wgpu=error,wgpu_core=error,wgpu_hal=error,naga=warn"
     ))
 }
 

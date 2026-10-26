@@ -44,7 +44,10 @@ name = "no_secrets_in_logs"
 required-features = ["fake-riot"]
 
 [dependencies]
-eframe = "0.31"
+# Rendering: wgpu (Direct3D 12 / Vulkan / Metal) by default, OpenGL (glow) as
+# a fallback for machines where wgpu can't start.
+eframe = { version = "0.31", features = ["wgpu"] }
+egui-phosphor = "0.9"
 egui = "0.31"
 egui_extras = { version = "0.31", features = ["file", "http", "image"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }

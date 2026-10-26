@@ -122,6 +122,8 @@ async fn main() {
                             .unwrap_or_default();
                         println!("{} M3 → {state:?}{extra}", stamp());
                     }
+                    // Friends' presences and chat aren't part of the probe's output.
+                    Some(WatchEvent::Presences(_) | WatchEvent::Chat(_)) => {}
                     None => break,
                 },
                 _ = check.tick() => {

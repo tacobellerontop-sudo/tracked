@@ -6,7 +6,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 /// One entry of the local chat presence list.
-#[derive(Debug, Default, Clone, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Deserialize)]
 #[serde(default)]
 pub struct RawPresence {
     pub puuid: String,
@@ -15,6 +15,8 @@ pub struct RawPresence {
     pub game_tag: String,
     /// Base64-encoded JSON blob. For VALORANT it carries the session loop state.
     pub private: Option<String>,
+    /// "chat", "away", "dnd", "mobile", "offline"…
+    pub state: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

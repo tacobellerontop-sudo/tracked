@@ -56,6 +56,11 @@ pub enum WatchEvent {
         state: GameState,
         presence: Option<GamePresence>,
     },
+    /// Presences of other players (friends): a full snapshot when polled,
+    /// only the changed entries when they arrive over the socket.
+    Presences(Vec<presence::RawPresence>),
+    /// New chat messages (whispers and group chats).
+    Chat(Vec<super::chat::ChatMessage>),
 }
 
 /// Polling cadence while the socket is down.
@@ -175,6 +180,15 @@ async fn poll_once(t: &mut Tracker) -> bool {
     match t.session.local.presences().await {
         Ok(p) => {
             let gp = presence::own_presence(&p.presences, &t.session.puuid);
+            let others: Vec<_> = p
+                .presences
+                .iter()
+                .filter(|x| x.puuid != t.session.puuid)
+                .cloned()
+                .collect();
+            if !t.send(WatchEvent::Presences(others)) {
+                return false;
+            }
             t.feed(gp).await
         }
         // Client unreachable: report offline (the supervisor tears down).
@@ -199,6 +213,9 @@ async fn socket(t: &mut Tracker) -> Result<(), String> {
     .await
     .map_err(|_| "connect timeout".to_string())?
     .map_err(|e| crate::error::chain(&e))?;
+    ws.send(Message::Text(super::chat::SUBSCRIBE_MESSAGES.into()))
+        .await
+        .map_err(|e| e.to_string())?;
     ws.send(Message::Text(presence::SUBSCRIBE_PRESENCES.into()))
         .await
         .map_err(|e| e.to_string())?;
@@ -213,10 +230,20 @@ async fn socket(t: &mut Tracker) -> Result<(), String> {
     while let Some(msg) = ws.next().await {
         let msg = msg.map_err(|e| e.to_string())?;
         let Message::Text(text) = msg else { continue };
+        if let Some(msgs) = super::chat::messages_from_event(&text) {
+            if !t.send(WatchEvent::Chat(msgs)) {
+                return Ok(());
+            }
+            continue;
+        }
         let Some(list) = presence::presences_from_event(&text) else {
             continue;
         };
-        // Events carry only the presences that changed; ignore other players.
+        // Events carry only the presences that changed.
+        let others: Vec<_> = list.iter().filter(|p| p.puuid != t.session.puuid).cloned().collect();
+        if !others.is_empty() && !t.send(WatchEvent::Presences(others)) {
+            return Ok(());
+        }
         if !list.iter().any(|p| p.puuid == t.session.puuid) {
             continue;
         }
