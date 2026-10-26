@@ -22,8 +22,10 @@ use crate::riot::RiotId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
+    Home,
     Live,
-    Career,
+    Matches,
+    Agents,
     Lookup,
     Crosshairs,
     Social,
@@ -193,6 +195,10 @@ pub struct AppState {
     pub lookup: LookupState,
     pub crosshair: CrosshairEditor,
     pub update_status: Option<UpdateStatus>,
+    /// Home performance chart range.
+    pub home_range: crate::stats::Range,
+    /// Top-bar search text (filters Matches / Agents; Name#TAG looks up).
+    pub search: String,
     pub social: SocialState,
     pub toasts: Vec<Toast>,
     pub pending_toasts: Vec<String>,
@@ -209,7 +215,7 @@ pub struct AppState {
 impl AppState {
     pub fn new(settings: Settings) -> Self {
         Self {
-            screen: Screen::Career,
+            screen: Screen::Home,
             status: ClientStatus::NotRunning,
             connection: Default::default(),
             startup_done: false,
@@ -221,13 +227,15 @@ impl AppState {
             matches: HashMap::new(),
             selected_match: None,
             match_perspective: None,
-            return_to: Screen::Career,
+            return_to: Screen::Home,
             live: None,
             names: HashMap::new(),
             probes: HashMap::new(),
             lookup: LookupState::default(),
             crosshair: CrosshairEditor::default(),
             update_status: None,
+            home_range: crate::stats::Range::Days30,
+            search: String::new(),
             social: SocialState::new(settings.backend_url.clone()),
             toasts: Vec::new(),
             pending_toasts: Vec::new(),
@@ -360,7 +368,7 @@ impl AppState {
     pub fn finish_startup(&mut self) {
         self.startup_done = true;
         let live = self.game.as_ref().is_some_and(|g| g.loop_state.is_live());
-        self.screen = if live { Screen::Live } else { Screen::Career };
+        self.screen = if live { Screen::Live } else { Screen::Home };
     }
 
     /// Start a lookup by PUUID (e.g. clicking a lobby player).
@@ -404,10 +412,7 @@ impl eframe::App for App {
             self.state.apply(update);
         }
         if self.applied_theme != Some(self.state.settings.theme) {
-            ctx.set_visuals(match self.state.settings.theme {
-                Theme::Dark => egui::Visuals::dark(),
-                Theme::Light => egui::Visuals::light(),
-            });
+            crate::ui::theme::apply(ctx, self.state.settings.theme);
             self.applied_theme = Some(self.state.settings.theme);
         }
         if let Some(rect) = ctx.input(|i| i.viewport().inner_rect) {

@@ -13,7 +13,7 @@ use crate::riot::models::{MatchDetail, PlayerMatch};
 pub fn ui(ui: &mut egui::Ui, state: &mut AppState, _intents: &IntentTx) {
     if ui.button("Back").clicked() {
         state.screen = if state.return_to == Screen::MatchDetail {
-            Screen::Career
+            Screen::Home
         } else {
             state.return_to
         };

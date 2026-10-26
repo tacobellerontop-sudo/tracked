@@ -49,6 +49,14 @@ pub struct GamePresence {
     pub party_size: u32,
     pub queue_id: String,
     pub map: String,
+    /// "DEFAULT", "MATCHMAKING" (in queue), "MATCHMADE_GAME_STARTING"…
+    pub party_state: String,
+}
+
+impl GamePresence {
+    pub fn in_queue(&self) -> bool {
+        self.loop_state == LoopState::Menus && self.party_state == "MATCHMAKING"
+    }
 }
 
 /// Decode the base64 private blob. Handles both the flat (older) layout and
@@ -66,6 +74,7 @@ pub fn decode_private(b64: &str) -> Option<GamePresence> {
         party_size: p.get("partySize").and_then(Value::as_u64).unwrap_or(0) as u32,
         queue_id: s(m, "queueId"),
         map: s(m, "matchMap"),
+        party_state: s(p, "partyState"),
     })
 }
 

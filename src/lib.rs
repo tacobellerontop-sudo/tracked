@@ -19,5 +19,6 @@ pub mod ipc;
 pub mod logging;
 pub mod riot;
 pub mod secret;
+pub mod stats;
 pub mod ui;
 pub mod worker;

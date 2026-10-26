@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum Theme {
     #[default]
-    Dark,
     Light,
+    Dark,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -24,6 +24,9 @@ pub struct CrosshairPreset {
 #[serde(default)]
 pub struct Settings {
     pub window_size: [f32; 2],
+    /// Stored as "appearance" (the old "theme" key, from before the redesign,
+    /// is ignored so everyone starts on the new light look).
+    #[serde(rename = "appearance")]
     pub theme: Theme,
     /// Live-match polling interval while in agent select / in game.
     pub poll_interval_secs: u64,
@@ -45,8 +48,8 @@ pub const DEFAULT_UPDATE_URL: &str = "https://api.github.com/repos/tacobelleront
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            window_size: [1180.0, 760.0],
-            theme: Theme::Dark,
+            window_size: [1440.0, 900.0],
+            theme: Theme::Light,
             poll_interval_secs: 5,
             crosshairs: Vec::new(),
             backend_url: None,

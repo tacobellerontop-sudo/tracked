@@ -91,8 +91,12 @@ pub enum ClientStatus {
 pub struct RrPoint {
     pub at_unix: i64,
     pub tier: u32,
+    /// Tier before this game (rank-ups / downs for the activity feed).
+    pub tier_before: u32,
     pub rr: i32,
     pub earned: i32,
+    pub map_id: String,
+    pub match_id: String,
 }
 
 impl RrPoint {
@@ -102,10 +106,22 @@ impl RrPoint {
     }
 }
 
+/// Cosmetic identity from the player's loadout + valorant-api.com.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Profile {
+    /// Square player-card art (avatar).
+    pub card_icon: Option<String>,
+    /// Wide player-card art (banner).
+    pub card_wide: Option<String>,
+    pub title: Option<String>,
+    pub account_level: Option<u32>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct CareerSummary {
     pub puuid: String,
     pub riot_id: Option<RiotId>,
+    pub profile: Profile,
     pub rank: RankSnapshot,
     /// Oldest first.
     pub rr_history: Vec<RrPoint>,

@@ -10,6 +10,29 @@ pub async fn player_mmr(s: &RiotSession, puuid: &str) -> Result<PlayerMmr, ApiEr
     s.get(&format!("{}/mmr/v1/players/{puuid}", s.pd()?)).await
 }
 
+#[derive(Debug, Default, Clone, serde::Deserialize)]
+#[serde(default, rename_all = "PascalCase")]
+pub struct LoadoutIdentity {
+    #[serde(rename = "PlayerCardID")]
+    pub player_card_id: String,
+    #[serde(rename = "PlayerTitleID")]
+    pub player_title_id: String,
+    pub account_level: u32,
+    pub hide_account_level: bool,
+}
+
+#[derive(Debug, Default, Clone, serde::Deserialize)]
+#[serde(default, rename_all = "PascalCase")]
+pub struct PlayerLoadout {
+    pub identity: LoadoutIdentity,
+}
+
+/// `GET /personalization/v2/players/{puuid}/playerloadout` (card, title, level).
+pub async fn player_loadout(s: &RiotSession, puuid: &str) -> Result<PlayerLoadout, ApiError> {
+    s.get(&format!("{}/personalization/v2/players/{puuid}/playerloadout", s.pd()?))
+        .await
+}
+
 pub async fn competitive_updates(s: &RiotSession, puuid: &str, count: u32) -> Result<CompetitiveUpdates, ApiError> {
     let url = format!(
         "{}/mmr/v1/players/{puuid}/competitiveupdates?startIndex=0&endIndex={count}&queue=competitive",

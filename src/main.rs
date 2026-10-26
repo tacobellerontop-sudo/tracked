@@ -14,7 +14,7 @@ fn main() -> eframe::Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_title("Ascend-Lite")
             .with_inner_size(settings.window_size)
-            .with_min_inner_size([760.0, 480.0]),
+            .with_min_inner_size([1000.0, 660.0]),
         ..Default::default()
     };
     eframe::run_native(

@@ -19,7 +19,7 @@ use crate::riot::presence::{GamePresence, LoopState};
 use crate::riot::{account, glz, pd, RiotId, Session};
 
 /// How many recent matches the career screen loads details for.
-pub const CAREER_MATCHES: u32 = 10;
+pub const CAREER_MATCHES: u32 = 20;
 /// How many recent matches a lookup loads.
 pub const LOOKUP_MATCHES: u32 = 5;
 /// Rank probes are reused for this long (ranks change at most once a game).
@@ -128,10 +128,11 @@ pub async fn refresh_career(ctx: Arc<Ctx>) {
 async fn career_inner(ctx: &Arc<Ctx>) -> Result<(), ApiError> {
     let s = ctx.session()?;
     let act = ctx.catalog().current_act.clone();
-    let (mmr, updates, history) = tokio::join!(
+    let (mmr, updates, history, loadout) = tokio::join!(
         pd::player_mmr(&s, &s.puuid),
         pd::competitive_updates(&s, &s.puuid, 20),
         pd::match_history(&s, &s.puuid, 0, CAREER_MATCHES),
+        pd::player_loadout(&s, &s.puuid),
     );
     // Show whatever loaded: a failed rank lookup shouldn't hide match history
     // (or the other way round). Failures are still reported.
@@ -167,15 +168,26 @@ async fn career_inner(ctx: &Arc<Ctx>) -> Result<(), ApiError> {
         .map(|m| RrPoint {
             at_unix: m.match_start_time / 1000,
             tier: m.tier_after_update,
+            tier_before: m.tier_before_update,
             rr: m.ranked_rating_after_update,
             earned: m.ranked_rating_earned,
+            map_id: m.map_id,
+            match_id: m.match_id,
         })
         .collect();
     rr_history.reverse();
+    let profile = match loadout {
+        Ok(l) => profile(ctx, &l.identity).await,
+        Err(e) => {
+            tracing::debug!("loadout failed: {e}");
+            Default::default()
+        }
+    };
 
     ctx.sink.send(Update::Career(CareerSummary {
         puuid: s.puuid.clone(),
         riot_id: Some(s.riot_id()),
+        profile,
         rank,
         rr_history,
         matches: history.history.clone(),
@@ -197,6 +209,30 @@ async fn career_inner(ctx: &Arc<Ctx>) -> Result<(), ApiError> {
         let _ = t.await;
     }
     Ok(())
+}
+
+/// Player card art, title and level for the profile banner.
+async fn profile(ctx: &Arc<Ctx>, id: &pd::LoadoutIdentity) -> crate::ipc::Profile {
+    let mut p = crate::ipc::Profile {
+        account_level: (!id.hide_account_level && id.account_level > 0).then_some(id.account_level),
+        ..Default::default()
+    };
+    if std::env::var_os("ASCEND_OFFLINE_CONTENT").is_some() {
+        return p;
+    }
+    if pd::is_uuid(&id.player_card_id) {
+        if let Ok((icon, wide)) = valorant_api::player_card(&ctx.http, &id.player_card_id).await {
+            p.card_icon = (!icon.is_empty()).then_some(icon);
+            p.card_wide = (!wide.is_empty()).then_some(wide);
+        }
+    }
+    if pd::is_uuid(&id.player_title_id) {
+        p.title = valorant_api::player_title(&ctx.http, &id.player_title_id)
+            .await
+            .ok()
+            .filter(|t| !t.is_empty());
+    }
+    p
 }
 
 /// Load one match (memory cache -> disk cache -> Riot) and publish it.

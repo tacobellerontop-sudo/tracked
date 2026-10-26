@@ -48,6 +48,11 @@ impl Lcg {
     }
 }
 
+/// "Now" for demo timestamps, so relative times ("2h ago") look right.
+fn demo_now_ms() -> i64 {
+    chrono::Utc::now().timestamp_millis()
+}
+
 pub fn puuid(i: usize) -> String {
     format!("00000000-0000-4000-8000-{i:012}")
 }
@@ -73,6 +78,7 @@ pub fn catalog() -> Catalog {
             MapInfo {
                 name: m.to_string(),
                 icon: String::new(),
+                splash: String::new(),
             },
         );
     }
@@ -164,7 +170,7 @@ pub fn synthetic_match(seed: u64) -> MatchDetail {
         .collect();
     let raw: RawMatch = serde_json::from_value(json!({
         "matchInfo": { "matchId": format!("d{seed:07}-0000-4000-8000-000000000000"), "mapId": format!("/Game/Maps/{0}/{0}", MAPS[seed as usize % MAPS.len()]),
-                       "queueID": "competitive", "gameLengthMillis": 1_500_000 + seed * 37_000, "gameStartMillis": 1_761_400_000_000i64 - seed as i64 * 7_200_000,
+                       "queueID": "competitive", "gameLengthMillis": 1_500_000 + seed * 37_000, "gameStartMillis": demo_now_ms() - 2 * 3_600_000 - (seed as i64 - 1) * 26 * 3_600_000,
                        "isRanked": true, "isCompleted": true },
         "players": players,
         "teams": [{ "teamId": "Red", "won": red > blue, "roundsWon": red, "roundsPlayed": n },
@@ -294,25 +300,43 @@ pub async fn run(mut intents: IntentRx, ctx: Arc<Ctx>) {
         queue_id: "competitive".into(),
         ..Default::default()
     })));
-    let matches: Vec<MatchDetail> = (1..=10).map(synthetic_match).collect();
+    let matches: Vec<MatchDetail> = (1..=20).map(synthetic_match).collect();
     let send_career = || {
-        let mut rr = 40;
-        let rr_history = (0..12)
+        // A climb from Silver 3 to Platinum 2 over the last ~6 months.
+        let now = demo_now_ms() / 1000;
+        let mut ladder = 11 * 100 + 40;
+        let mut rr_history: Vec<RrPoint> = (0..20)
             .map(|i| {
-                let earned = [18, -14, 21, 16, -12, 19, -9, 22, 17, -15, 20, 23][i];
-                rr += earned;
+                let earned = [
+                    28, -14, 31, 26, -12, 29, -9, 32, 27, -15, 30, 33, 24, -18, 35, 22, -11, 29, 26, 23,
+                ][i];
+                let before = ladder / 100;
+                ladder += earned;
+                let m = &matches[19 - i];
                 RrPoint {
-                    at_unix: 1_761_000_000 + i as i64 * 7200,
-                    tier: 15 + (rr / 100) as u32,
-                    rr: rr % 100,
+                    at_unix: now - (19 - i as i64) * 9 * 86_400 - 7200,
+                    tier: (ladder / 100) as u32,
+                    tier_before: before as u32,
+                    rr: ladder % 100,
                     earned,
+                    map_id: m.info.map_id.clone(),
+                    match_id: m.info.match_id.clone(),
                 }
             })
-            .collect::<Vec<_>>();
+            .collect();
+        // The most recent games are the ones in the match list.
+        for (p, m) in rr_history.iter_mut().rev().zip(&matches) {
+            p.at_unix = m.info.started_at_unix;
+        }
         let last = rr_history.last().cloned().unwrap();
         ctx.sink.send(Update::Career(CareerSummary {
             puuid: puuid(0),
             riot_id: Some(me.clone()),
+            profile: crate::ipc::Profile {
+                account_level: Some(187),
+                title: Some("Lobby Scout".into()),
+                ..Default::default()
+            },
             rank: RankSnapshot {
                 tier: last.tier,
                 rr: last.rr,

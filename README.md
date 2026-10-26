@@ -6,18 +6,22 @@ A lightweight, native desktop companion for VALORANT, written in Rust with
 - Detects the running Riot client and the signed-in player
 - **Live:** game state (menus / agent select / in game) and a lobby roster with
   each player's rank, RR, season win rate, recent form, peak rank and level
-- **Career:** your rank, an RR trend line, match history with K/D/A, ADR, HS%, ACS
+- **Home:** your player card and rank; win rate, K/D, ACS and headshot % compared with
+  the average player in your lobbies; an ACS chart (7D/30D/90D/All); top agents; rank
+  progression; recent ranked activity; recent matches; and what you're doing right now
+- **Matches / Agents:** full match history and per-agent stats (filterable from the search bar)
 - **Match detail:** both scoreboards (ACS, K/D, ADR, HS%, KAST, first kills/deaths,
   multi-kills, plants/defuses) and a round-by-round strip
 - **Lookup:** another player's rank and recent matches
 - **Crosshairs:** paste or build a crosshair code, preview it, save presets, copy
 
-![Live roster](docs/screenshots/live.png)
+![Home dashboard](docs/screenshots/home.png)
 
-More: [career](docs/screenshots/career.png) · [match detail](docs/screenshots/match-detail.png) ·
-[lookup](docs/screenshots/lookup.png) · [crosshairs](docs/screenshots/crosshairs.png) ·
-[social](docs/screenshots/social.png). Screenshots are from `--demo` mode with synthetic
-data; in normal use, agent, map and rank artwork from valorant-api.com shows next to each row.
+More: [home, lower half](docs/screenshots/home-bottom.png) · [dark mode](docs/screenshots/home-dark.png) ·
+[agents](docs/screenshots/agents.png) · [live lobby](docs/screenshots/live.png) ·
+[match detail](docs/screenshots/match-detail.png) · [startup check](docs/screenshots/startup.png).
+Screenshots are from `--demo` mode with synthetic data and no artwork; in normal use your
+player card, agent, map and rank art load from valorant-api.com.
 
 ## ⚠️ Disclaimer
 

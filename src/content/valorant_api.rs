@@ -20,6 +20,8 @@ pub struct Agent {
 pub struct MapInfo {
     pub name: String,
     pub icon: String,
+    /// Large 16:9 artwork (loaded on demand, not pre-cached).
+    pub splash: String,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -42,6 +44,8 @@ pub struct Catalog {
     pub tiers: HashMap<u32, Tier>,
     /// UUID of the act that is live right now.
     pub current_act: Option<String>,
+    /// e.g. "Episode 9 · Act III".
+    pub current_act_name: Option<String>,
 }
 
 impl Catalog {
@@ -129,6 +133,7 @@ pub async fn fetch_catalog(http: &reqwest::Client) -> Result<Catalog, ApiError> 
         let info = MapInfo {
             name: str_of(&m, "displayName"),
             icon: str_of(&m, "listViewIcon"),
+            splash: str_of(&m, "splash"),
         };
         c.maps.insert(str_of(&m, "mapUrl"), info.clone());
         c.maps.insert(str_of(&m, "uuid").to_ascii_lowercase(), info);
@@ -149,8 +154,32 @@ pub async fn fetch_catalog(http: &reqwest::Client) -> Result<Catalog, ApiError> 
             );
         }
     }
-    c.current_act = current_act(&seasons.unwrap_or_default(), chrono::Utc::now());
+    let seasons = seasons.unwrap_or_default();
+    c.current_act = current_act(&seasons, chrono::Utc::now());
+    c.current_act_name = c.current_act.as_deref().and_then(|a| act_name(&seasons, a));
     Ok(c)
+}
+
+/// "Episode 9 · Act III" from the seasons list.
+pub fn act_name(seasons: &[Value], act: &str) -> Option<String> {
+    let find = |id: &str| seasons.iter().find(|s| str_of(s, "uuid").eq_ignore_ascii_case(id));
+    let a = find(act)?;
+    let act_name = title_case(&str_of(a, "displayName"));
+    match find(&str_of(a, "parentUuid")).map(|e| title_case(&str_of(e, "displayName"))) {
+        Some(ep) if !ep.is_empty() => Some(format!("{ep} · {act_name}")),
+        _ => Some(act_name),
+    }
+}
+
+/// Player card art: (square icon, wide banner art).
+pub async fn player_card(http: &reqwest::Client, id: &str) -> Result<(String, String), ApiError> {
+    let v: Value = get(http, &format!("/v1/playercards/{id}")).await?;
+    Ok((str_of(&v, "displayIcon"), str_of(&v, "wideArt")))
+}
+
+pub async fn player_title(http: &reqwest::Client, id: &str) -> Result<String, ApiError> {
+    let v: Value = get(http, &format!("/v1/playertitles/{id}")).await?;
+    Ok(str_of(&v, "titleText"))
 }
 
 /// The act whose `[startTime, endTime)` contains `now`.

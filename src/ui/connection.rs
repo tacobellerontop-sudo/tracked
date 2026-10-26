@@ -36,8 +36,13 @@ pub fn startup(ctx: &egui::Context, state: &mut AppState, intents: &IntentTx) {
                 ui.vertical(|ui| {
                     ui.set_max_width(width);
                     ui.add_space(36.0);
-                    ui.heading(RichText::new("Ascend-Lite").size(28.0));
-                    ui.add_space(4.0);
+                    let p = super::theme::pal(ui.ctx());
+                    ui.horizontal(|ui| {
+                        let (r, _) = ui.allocate_exact_size(egui::vec2(34.0, 34.0), egui::Sense::hover());
+                        super::icons::logo(ui.painter(), r, p.accent);
+                        ui.label(RichText::new("A S C E N D").size(18.0).color(p.text));
+                    });
+                    ui.add_space(14.0);
                     let (headline, color) = headline(state);
                     ui.label(RichText::new(headline).size(16.0).color(color));
                     ui.add_space(18.0);
@@ -75,8 +80,10 @@ fn headline(state: &AppState) -> (String, Color32) {
 }
 
 fn checklist(ui: &mut egui::Ui, state: &AppState) {
-    egui::Frame::group(ui.style()).inner_margin(12.0).show(ui, |ui| {
+    let p = super::theme::pal(ui.ctx());
+    super::theme::card_frame(&p).show(ui, |ui| {
         ui.set_width(ui.available_width());
+        ui.spacing_mut().item_spacing.y = 3.0;
         for (step, st) in &state.connection.steps {
             ui.horizontal_top(|ui| {
                 indicator(ui, st);
