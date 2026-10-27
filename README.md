@@ -88,6 +88,9 @@ and valorant-api.com.
 
 ### If it doesn't connect
 
+**Wrong region** (Unranked, no matches): set it under **Settings → Region**. Tracked also
+re-checks automatically once VALORANT is running, since the game reports its own region.
+
 The app opens on a **startup screen** that checks each part of the connection: the
 Riot Client is running, you're signed in, region, game version, Riot ID, Riot's match
 servers, and live updates. It moves on to the app once everything required passes.

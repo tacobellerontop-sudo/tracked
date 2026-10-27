@@ -4262,6 +4262,7 @@ dependencies = [
  "image",
  "mock-backend",
  "native-tls",
+ "raw-window-handle",
  "rcgen",
  "regex",
  "reqwest",
@@ -4277,6 +4278,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "webpki-roots 0.26.11",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

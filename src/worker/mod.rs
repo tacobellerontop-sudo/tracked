@@ -85,7 +85,13 @@ struct Supervisor {
     next_live_poll: Instant,
     report: ConnectionReport,
     sent_report: Option<ConnectionReport>,
+    /// The region came from VALORANT itself or the user (no re-check needed).
+    region_settled: bool,
+    next_region_check: Instant,
 }
+
+/// How often to re-check a guessed region while VALORANT isn't reporting one.
+const REGION_RECHECK: Duration = Duration::from_secs(10);
 
 /// The intent dispatch + supervision loop.
 pub async fn run(mut intents: IntentRx, sink: UpdateSink, settings: Settings) {
@@ -109,6 +115,8 @@ pub async fn run(mut intents: IntentRx, sink: UpdateSink, settings: Settings) {
         next_live_poll: now,
         report: ConnectionReport::default(),
         sent_report: None,
+        region_settled: false,
+        next_region_check: now,
     };
     tokio::spawn(social::configure(sup.ctx.clone()));
     if sup.ctx.settings.lock().unwrap().check_for_updates {
@@ -178,8 +186,16 @@ impl Supervisor {
                 // Update the in-memory copy now so intents queued right after
                 // (e.g. BackendConfigure) see the new values; only the disk
                 // write is deferred.
-                *ctx.settings.lock().unwrap() = s.clone();
+                let region_changed = {
+                    let mut current = ctx.settings.lock().unwrap();
+                    let changed = current.region_override != s.region_override;
+                    *current = s.clone();
+                    changed
+                };
                 tokio::spawn(tasks::save_settings(ctx, s));
+                if region_changed {
+                    self.reconnect("Switching region…");
+                }
             }
             Intent::Shutdown => {}
             // Backend intents are handled by `social::handle` above.
@@ -204,7 +220,51 @@ impl Supervisor {
         }
         if let Phase::Authed { .. } = self.phase {
             self.maintain_live();
+            if !self.region_settled && Instant::now() >= self.next_region_check {
+                self.next_region_check = Instant::now() + REGION_RECHECK;
+                self.check_region().await;
+            }
         }
+    }
+
+    /// The region was a guess (VALORANT wasn't running when we connected).
+    /// Once VALORANT reports its own region, reconnect if the guess was wrong.
+    async fn check_region(&mut self) {
+        let Ok(s) = self.ctx.session() else { return };
+        if matches!(
+            s.region_source,
+            riot::RegionSource::LaunchArgs | riot::RegionSource::Override
+        ) {
+            self.region_settled = true;
+            return;
+        }
+        let Ok(sessions) = s.local.external_sessions().await else {
+            return;
+        };
+        let reported = sessions
+            .values()
+            .filter(|x| x.product_id == "valorant")
+            .find_map(|x| riot::region::from_launch_args(&x.launch_configuration.arguments));
+        let Some((region, shard)) = reported else { return };
+        self.region_settled = true;
+        if (region, shard) != (s.region, s.shard) {
+            tracing::info!(guessed = %s.region, actual = %region, "VALORANT reports a different region; reconnecting");
+            self.reconnect("VALORANT reported a different region; reconnecting…");
+        }
+    }
+
+    /// Drop the session and connect again right away.
+    fn reconnect(&mut self, why: &str) {
+        self.teardown();
+        self.phase = Phase::Disconnected;
+        self.report = ConnectionReport {
+            attempt: self.report.attempt,
+            ..Default::default()
+        };
+        self.publish_report();
+        self.set_status(ClientStatus::Connecting(why.into()));
+        self.backoff = Duration::from_secs(2);
+        self.next_check = Instant::now();
     }
 
     /// Poll GLZ every few seconds while in agent select / in game, and only
@@ -243,6 +303,14 @@ impl Supervisor {
         let now = Instant::now();
         self.report.attempt += 1;
         let http = self.ctx.http.clone();
+        let region_override = self
+            .ctx
+            .settings
+            .lock()
+            .unwrap()
+            .region_override
+            .as_deref()
+            .and_then(riot::region::Region::parse);
         let result = {
             let (report, sent, sink) = (&mut self.report, &mut self.sent_report, self.ctx.sink.clone());
             let mut observe = |step: Step, state: StepState| {
@@ -260,7 +328,7 @@ impl Supervisor {
                     sink.send(Update::Connection(report.clone()));
                 }
             };
-            riot::connect_observed(&http, &mut observe).await
+            riot::connect_with(&http, region_override, &mut observe).await
         };
 
         let session = match result {
@@ -327,6 +395,8 @@ impl Supervisor {
         };
         self.backoff = Duration::from_secs(2);
         self.dead_checks = 0;
+        self.region_settled = false;
+        self.next_region_check = now;
         self.next_check = now + ALIVE_CHECK;
         self.next_live_poll = now;
 

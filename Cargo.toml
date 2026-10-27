@@ -76,6 +76,10 @@ webpki-roots = "0.26"
 reqwest = { version = "0.12", default-features = false, features = ["native-tls"] }
 tokio-tungstenite = { version = "0.24", default-features = false, features = ["native-tls"] }
 native-tls = "0.2"
+# Only to style our own window (rounded corners + shadow on Windows 11).
+# Never used to touch any other process.
+raw-window-handle = "0.6"
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_UI_Controls"] }
 
 [dev-dependencies]
 mock-backend = { path = "mock-backend" }

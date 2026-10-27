@@ -21,6 +21,10 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
             });
             ui.end_row();
 
+            ui.label("Region");
+            region_picker(ui, state);
+            ui.end_row();
+
             ui.label("Animations");
             ui.checkbox(&mut state.settings.animations, "Smooth transitions and motion");
             ui.end_row();
@@ -166,4 +170,53 @@ fn apply_url(state: &mut AppState, intents: &IntentTx, url: Option<String>) {
     state.settings.backend_url = url;
     state.save_settings(intents);
     intents.send(Intent::BackendConfigure);
+}
+
+/// Region override: automatic detection, or a fixed VALORANT region.
+fn region_picker(ui: &mut egui::Ui, state: &mut AppState) {
+    use crate::riot::region::Region;
+    let current = match &state.status {
+        crate::ipc::ClientStatus::Authed { region, .. } => Some(region.to_uppercase()),
+        _ => None,
+    };
+    let automatic = state.settings.region_override.is_none();
+    let label = |code: Option<&str>| match code {
+        None => match &current {
+            Some(r) if automatic => format!("Automatic (using {r})"),
+            _ => "Automatic".to_string(),
+        },
+        Some(c) => region_name(c).to_string(),
+    };
+    ui.vertical(|ui| {
+        let selected = label(state.settings.region_override.as_deref());
+        egui::ComboBox::from_id_salt("region-override")
+            .selected_text(selected)
+            .width(220.0)
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut state.settings.region_override, None, label(None));
+                for r in Region::ALL {
+                    let code = Some(r.as_str().to_string());
+                    ui.selectable_value(&mut state.settings.region_override, code, region_name(r.as_str()));
+                }
+            });
+        ui.label(
+            egui::RichText::new(
+                "Pick yours if Tracked shows the wrong region (e.g. Unranked with no matches). Reconnects right away.",
+            )
+            .small()
+            .weak(),
+        );
+    });
+}
+
+fn region_name(code: &str) -> &'static str {
+    match code {
+        "na" => "North America (NA)",
+        "latam" => "Latin America (LATAM)",
+        "br" => "Brazil (BR)",
+        "eu" => "Europe (EU)",
+        "ap" => "Asia Pacific (AP)",
+        "kr" => "Korea (KR)",
+        _ => "Unknown",
+    }
 }

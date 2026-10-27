@@ -29,6 +29,9 @@ pub struct RiotSession {
     pub tag_line: String,
     pub region: Region,
     pub shard: Shard,
+    /// Where the region came from; anything but VALORANT's own launch
+    /// arguments (or the user's override) is re-checked once the game runs.
+    pub region_source: RegionSource,
     pub hosts: Hosts,
     /// Local server client (holds [`LocalAuth`]).
     pub local: LocalClient,
@@ -41,6 +44,8 @@ pub struct RiotSession {
 /// How a region was determined (shown on the startup screen).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RegionSource {
+    /// Chosen by the user in Settings.
+    Override,
     LaunchArgs,
     ClientRegion,
     ChatSession,
@@ -50,6 +55,7 @@ pub enum RegionSource {
 impl RegionSource {
     pub fn describe(self) -> &'static str {
         match self {
+            RegionSource::Override => "set in Settings",
             RegionSource::LaunchArgs => "from VALORANT",
             RegionSource::ClientRegion => "from the Riot Client",
             RegionSource::ChatSession => "from your chat session",
@@ -66,6 +72,16 @@ pub async fn connect() -> Result<RiotSession, RiotError> {
 /// [`connect`], reporting each step to `observe` (for the startup checklist).
 pub async fn connect_observed(
     http: &reqwest::Client,
+    observe: &mut dyn FnMut(Step, StepState),
+) -> Result<RiotSession, RiotError> {
+    connect_with(http, None, observe).await
+}
+
+/// [`connect_observed`] with an optional region chosen by the user, which
+/// takes precedence over detection.
+pub async fn connect_with(
+    http: &reqwest::Client,
+    region_override: Option<Region>,
     observe: &mut dyn FnMut(Step, StepState),
 ) -> Result<RiotSession, RiotError> {
     // §2 lockfile.
@@ -157,7 +173,11 @@ pub async fn connect_observed(
 
     // §5 region & shard.
     observe(Step::Region, StepState::Running);
-    let (region, shard, source) = match detect_region(&local, &chat, ent.access_token.expose()).await {
+    let detected = match region_override {
+        Some(r) => Some((r, r.default_shard(), RegionSource::Override)),
+        None => detect_region(&local, &chat, ent.access_token.expose()).await,
+    };
+    let (region, shard, source) = match detected {
         Some(r) => r,
         None => {
             observe(
@@ -213,6 +233,7 @@ pub async fn connect_observed(
         tag_line: chat.game_tag,
         region,
         shard,
+        region_source: source,
         hosts,
         local,
         public: RwLock::new(PublicAuth::new(ent.access_token, ent.token, client_version)),

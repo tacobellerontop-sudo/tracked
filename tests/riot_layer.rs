@@ -34,6 +34,21 @@ async fn milestones() {
     let session = std::sync::Arc::new(riot::connect().await.expect("connect"));
     assert_eq!(session.riot_id().to_string(), "Tester#0001");
 
+    // A region chosen in Settings wins over detection.
+    let detected = session.region;
+    let other = if detected == riot::region::Region::Kr {
+        riot::region::Region::Eu
+    } else {
+        riot::region::Region::Kr
+    };
+    let chosen = riot::connect_with(&riot::public_http(), Some(other), &mut |_, _| {})
+        .await
+        .expect("connect with override");
+    assert_eq!(chosen.region, other);
+    assert_eq!(chosen.shard, other.default_shard());
+    assert_eq!(chosen.region_source, riot::RegionSource::Override);
+    assert_ne!(session.region_source, riot::RegionSource::Override);
+
     // M2: a real authenticated PD call with the four headers.
     let mmr = pd::player_mmr(&session, &session.puuid).await.expect("PD call");
     assert_eq!(mmr.latest_competitive_update.unwrap().tier_after_update, 10);

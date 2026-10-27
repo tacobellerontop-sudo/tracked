@@ -32,7 +32,7 @@ use std::time::Duration;
 
 pub use error::RiotError;
 pub use region::{Hosts, Region, Shard};
-pub use session::{connect, connect_observed, refresh_tokens, RegionSource, RiotSession};
+pub use session::{connect, connect_observed, connect_with, refresh_tokens, RegionSource, RiotSession};
 pub use state::{watch, watch_state, GameState, WatchEvent};
 pub use version::parse_ci_version;
 

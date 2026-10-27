@@ -32,6 +32,9 @@ fn run(settings: Settings, demo: bool, renderer: eframe::Renderer) -> eframe::Re
             egui_extras::install_image_loaders(&cc.egui_ctx);
             tracked::ui::theme::install_fonts(&cc.egui_ctx);
             let gpu = tracked::ui::theme::describe_renderer(cc);
+            if !settings.system_title_bar {
+                tracked::ui::titlebar::native_frame(cc);
+            }
             tracing::info!(renderer = %gpu, "renderer ready");
             let (intent_tx, intent_rx, sink, update_rx) = ipc::channels(cc.egui_ctx.clone());
             let handle = worker::spawn_mode(intent_rx, sink, settings.clone(), demo);

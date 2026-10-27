@@ -53,6 +53,9 @@ pub struct Settings {
     pub check_for_updates: bool,
     /// Renderer preference (takes effect on restart).
     pub renderer: RendererPref,
+    /// VALORANT region code ("na", "eu", "ap", …) to use instead of detecting
+    /// it. `None` = automatic.
+    pub region_override: Option<String>,
     /// Interface animations (page fades, sliding highlights, count-ups).
     pub animations: bool,
     /// Use the OS title bar instead of the app's own (takes effect on restart).
@@ -79,6 +82,7 @@ impl Default for Settings {
             renderer: RendererPref::Auto,
             animations: true,
             system_title_bar: false,
+            region_override: None,
             update_url: DEFAULT_UPDATE_URL.to_string(),
         }
     }

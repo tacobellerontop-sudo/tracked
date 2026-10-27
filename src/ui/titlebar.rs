@@ -153,3 +153,43 @@ fn edge_resize(ctx: &egui::Context, maximized: bool) {
         ctx.send_viewport_cmd(ViewportCommand::BeginResize(dir));
     }
 }
+
+/// Without the OS title bar Windows 11 draws the window square and without a
+/// shadow. Ask DWM for rounded corners and extend its frame by a pixel so
+/// the shadow comes back. This only styles our own window.
+#[cfg(windows)]
+pub fn native_frame(cc: &eframe::CreationContext<'_>) {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows_sys::Win32::Graphics::Dwm::{
+        DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+    };
+    use windows_sys::Win32::UI::Controls::MARGINS;
+
+    let Ok(handle) = cc.window_handle() else { return };
+    let RawWindowHandle::Win32(w) = handle.as_raw() else {
+        return;
+    };
+    let hwnd = w.hwnd.get() as windows_sys::Win32::Foundation::HWND;
+    let pref = DWMWCP_ROUND;
+    let margins = MARGINS {
+        cxLeftWidth: 1,
+        cxRightWidth: 1,
+        cyTopHeight: 1,
+        cyBottomHeight: 1,
+    };
+    // SAFETY: `hwnd` is our live top-level window; both calls only read the
+    // values we pass for the duration of the call. Failures (e.g. Windows 10,
+    // which has no rounded corners) are harmless and ignored.
+    unsafe {
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE as u32,
+            &pref as *const _ as *const core::ffi::c_void,
+            std::mem::size_of_val(&pref) as u32,
+        );
+        DwmExtendFrameIntoClientArea(hwnd, &margins);
+    }
+}
+
+#[cfg(not(windows))]
+pub fn native_frame(_cc: &eframe::CreationContext<'_>) {}
