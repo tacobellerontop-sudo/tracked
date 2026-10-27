@@ -16,6 +16,9 @@ fn options(settings: &Settings, renderer: eframe::Renderer) -> eframe::NativeOpt
         },
         viewport: egui::ViewportBuilder::default()
             .with_title("Tracked")
+            .with_icon(
+                eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon/tracked.png")).unwrap_or_default(),
+            )
             .with_inner_size([
                 settings.window_size[0].max(MIN_SIZE[0]),
                 settings.window_size[1].max(MIN_SIZE[1]),

@@ -83,6 +83,10 @@ native-tls = "0.2"
 raw-window-handle = "0.6"
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_UI_Controls"] }
 
+[build-dependencies]
+# Embeds assets/icon/tracked.ico in tracked.exe (Windows builds only).
+winresource = "0.1"
+
 [dev-dependencies]
 mock-backend = { path = "mock-backend" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "test-util"] }

@@ -9,7 +9,9 @@ A lightweight, native desktop companion for VALORANT, written in Rust with
 - **Home:** your player card and rank; win rate, K/D, ACS and headshot % compared with
   the average player in your lobbies; an ACS chart (7D/30D/90D/All); top agents; rank
   progression; recent ranked activity; recent matches; and what you're doing right now
-- **Matches / Agents:** full match history and per-agent stats (filterable from the search bar)
+- **Matches / Agents:** full match history and per-agent stats (filterable from the search bar).
+  Each match shows a **performance score** (0–1000, 500 = the lobby average) that rates you
+  against the other nine players on ACS, KAST, ADR, K/D, entry duels and headshot %
 - **Match detail:** both scoreboards (ACS, K/D, ADR, HS%, KAST, first kills/deaths,
   multi-kills, plants/defuses) and a round-by-round strip
 - **Lookup:** another player's rank and recent matches

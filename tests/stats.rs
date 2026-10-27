@@ -154,3 +154,37 @@ fn empty_match_does_not_panic() {
         (0.0, 0.0, 0.0, 0.0, 0.0)
     );
 }
+
+#[test]
+fn performance_score_centres_on_the_lobby() {
+    for seed in 1..6 {
+        let m = tracked::worker::demo::synthetic_match(seed);
+        let scores = tracked::stats::performance_scores(&m);
+        assert_eq!(scores.len(), m.players.len());
+        let mean = scores.iter().map(|s| s.1 as f32).sum::<f32>() / scores.len() as f32;
+        assert!((mean - 500.0).abs() < 5.0, "seed {seed}: mean {mean}");
+        assert!(scores.iter().all(|s| s.1 <= 1000));
+        // The top player by ACS rates above the lobby average, the bottom one below.
+        let by_acs = |best: bool| {
+            m.players
+                .iter()
+                .max_by(|a, b| {
+                    let (x, y) = (a.stats.acs(), b.stats.acs());
+                    if best {
+                        x.total_cmp(&y)
+                    } else {
+                        y.total_cmp(&x)
+                    }
+                })
+                .unwrap()
+                .puuid
+                .clone()
+        };
+        let score_of = |p: &str| scores.iter().find(|s| s.0 == p).unwrap().1;
+        assert!(score_of(&by_acs(true)) > 500, "seed {seed}");
+        assert!(score_of(&by_acs(false)) < 500, "seed {seed}");
+    }
+    // Weights add up to 100%.
+    let total: f32 = tracked::stats::PERFORMANCE_WEIGHTS.iter().map(|w| w.1).sum();
+    assert!((total - 1.0).abs() < 1e-6);
+}

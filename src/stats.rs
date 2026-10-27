@@ -239,6 +239,75 @@ pub fn ago(unix: i64, now: i64) -> String {
     }
 }
 
+/// Performance score: how well someone played relative to the other players
+/// in the same match, on a 0–1000 scale where 500 is the lobby average.
+///
+/// Each stat is turned into a z-score against the lobby (capped at ±3) and
+/// the weighted sum is mapped to `500 + 160 × z`: ACS 30%, KAST 20%, ADR 15%,
+/// K/D 15%, first kills minus first deaths per round 10%, headshot % 10%.
+pub const PERFORMANCE_WEIGHTS: [(&str, f32); 6] = [
+    ("ACS", 0.30),
+    ("KAST", 0.20),
+    ("ADR", 0.15),
+    ("K/D", 0.15),
+    ("Entry (first kills − first deaths per round)", 0.10),
+    ("Headshot %", 0.10),
+];
+
+/// Performance score for every player in the match, in `players` order.
+/// Empty when fewer than two players have rounds to compare.
+pub fn performance_scores(detail: &MatchDetail) -> Vec<(String, u32)> {
+    let players: Vec<_> = detail.players.iter().filter(|p| p.stats.rounds_played > 0).collect();
+    if players.len() < 2 {
+        return Vec::new();
+    }
+    let metrics: Vec<[f32; 6]> = players
+        .iter()
+        .map(|p| {
+            let s = &p.stats;
+            let rounds = s.rounds_played as f32;
+            [
+                s.acs(),
+                s.kast_pct(),
+                s.adr(),
+                s.kd(),
+                (s.first_kills as f32 - s.first_deaths as f32) / rounds,
+                s.hs_pct(),
+            ]
+        })
+        .collect();
+    let n = metrics.len() as f32;
+    let mut mean = [0.0f32; 6];
+    let mut sd = [0.0f32; 6];
+    for i in 0..6 {
+        mean[i] = metrics.iter().map(|m| m[i]).sum::<f32>() / n;
+        let var = metrics.iter().map(|m| (m[i] - mean[i]).powi(2)).sum::<f32>() / n;
+        sd[i] = var.sqrt();
+    }
+    players
+        .iter()
+        .zip(&metrics)
+        .map(|(p, m)| {
+            let z: f32 = (0..6)
+                .map(|i| {
+                    let zi = if sd[i] > 1e-6 { (m[i] - mean[i]) / sd[i] } else { 0.0 };
+                    PERFORMANCE_WEIGHTS[i].1 * zi.clamp(-3.0, 3.0)
+                })
+                .sum();
+            let score = (500.0 + 160.0 * z).round().clamp(0.0, 1000.0) as u32;
+            (p.puuid.clone(), score)
+        })
+        .collect()
+}
+
+/// Performance score of one player in a match.
+pub fn performance(detail: &MatchDetail, puuid: &str) -> Option<u32> {
+    performance_scores(detail)
+        .into_iter()
+        .find(|(p, _)| p == puuid)
+        .map(|(_, s)| s)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
