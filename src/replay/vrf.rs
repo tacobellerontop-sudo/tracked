@@ -31,7 +31,7 @@ pub fn list(dir: &Path) -> Vec<PathBuf> {
         .filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("vrf")))
         .filter_map(|p| Some((p.metadata().ok()?.modified().ok()?, p)))
         .collect();
-    files.sort_by(|a, b| b.0.cmp(&a.0));
+    files.sort_by_key(|f| std::cmp::Reverse(f.0));
     files.into_iter().map(|(_, p)| p).collect()
 }
 
