@@ -50,6 +50,8 @@ eframe = { version = "0.31", features = ["wgpu"] }
 egui-phosphor = "0.9"
 egui = "0.31"
 egui_extras = { version = "0.31", features = ["file", "http", "image"] }
+# Decompresses Oodle (Mermaid) blocks in VALORANT's downloaded replay files.
+oozextract = "0.5"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "net"] }
 anyhow = "1"

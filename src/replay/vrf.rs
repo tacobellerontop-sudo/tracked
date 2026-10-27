@@ -73,6 +73,8 @@ pub struct ChunkInfo {
     pub times: Option<(u32, u32)>,
     /// Size of the payload after the chunk's own sub-header.
     pub data_size: Option<u32>,
+    /// File offset where that payload starts.
+    pub data_offset: u64,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -258,6 +260,8 @@ pub fn inspect<R: Read + Seek>(r: &mut R) -> std::io::Result<Report> {
                     let (t1, t2) = (c.u32()?, c.u32()?);
                     info.times = Some((t1, t2));
                     info.data_size = Some(c.u32()?);
+                    // VALORANT adds the in-memory size before the data.
+                    let _memory_size = c.u32()?;
                 }
                 2 | 3 => {
                     let _id = c.fstring()?;
@@ -278,6 +282,7 @@ pub fn inspect<R: Read + Seek>(r: &mut R) -> std::io::Result<Report> {
             c.r.seek(SeekFrom::Start(offset + 8))?;
         }
         let here = c.r.stream_position()?;
+        info.data_offset = here;
         let mut sample = vec![0u8; ((end - here) as usize).min(4096)];
         c.r.read_exact(&mut sample)?;
         info.head = hex(&sample[..sample.len().min(16)]);
@@ -290,6 +295,99 @@ pub fn inspect<R: Read + Seek>(r: &mut R) -> std::io::Result<Report> {
         }
     }
     Ok(report)
+}
+
+/// Unpack one compressed block: `[u32 uncompressed][u32 compressed][Oodle]`.
+pub fn unpack(block: &[u8]) -> Result<Vec<u8>, String> {
+    if block.len() < 8 {
+        return Err("block too short".into());
+    }
+    let raw = u32::from_le_bytes(block[0..4].try_into().unwrap()) as usize;
+    let packed = u32::from_le_bytes(block[4..8].try_into().unwrap()) as usize;
+    if packed != block.len() - 8 {
+        return Err(format!(
+            "compressed size {packed} doesn't match the block ({})",
+            block.len() - 8
+        ));
+    }
+    if raw > 256 * 1024 * 1024 {
+        return Err(format!("implausible uncompressed size {raw}"));
+    }
+    if raw == packed {
+        // Stored uncompressed.
+        return Ok(block[8..].to_vec());
+    }
+    let mut out = vec![0u8; raw];
+    let n = oozextract::Extractor::new()
+        .read_from_slice(&block[8..], &mut out)
+        .map_err(|e| format!("oodle: {e:?}"))?;
+    if n != raw {
+        return Err(format!("unpacked {n} bytes, expected {raw}"));
+    }
+    Ok(out)
+}
+
+/// Unpack the first ReplayData and Checkpoint blocks of a file and report
+/// whether that worked, plus which Unreal names appear in the data (to see
+/// whether movement can be decoded). Prints no player data.
+pub fn decode_check(path: &Path, report: &Report) -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
+    for kind in [1u32, 2] {
+        let Some(c) = report.chunks.iter().find(|c| c.kind == kind && c.data_size.is_some()) else {
+            continue;
+        };
+        let len = c.data_size.unwrap_or(0) as usize;
+        let block = std::fs::File::open(path).and_then(|mut f| {
+            f.seek(SeekFrom::Start(c.data_offset))?;
+            let mut b = vec![0u8; len];
+            f.read_exact(&mut b)?;
+            Ok(b)
+        });
+        let result = block.map_err(|e| e.to_string()).and_then(|b| unpack(&b));
+        match result {
+            Ok(data) => {
+                let marks = [
+                    "ReplicatedMovement",
+                    "RepMovement",
+                    "Location",
+                    "Rotation",
+                    "Character",
+                    "PlayerState",
+                    "ShooterGame",
+                    "/Game/",
+                    "Default__",
+                ];
+                let found: Vec<String> = marks
+                    .iter()
+                    .map(|m| (m, count(&data, m.as_bytes())))
+                    .filter(|(_, n)| *n > 0)
+                    .map(|(m, n)| format!("{m}x{n}"))
+                    .collect();
+                let _ = writeln!(
+                    out,
+                    "  unpacked first {}: {} -> {} bytes, entropy {:.2}, names: {}",
+                    chunk_name(kind),
+                    len,
+                    data.len(),
+                    entropy(&data[..data.len().min(65536)]),
+                    if found.is_empty() {
+                        "none".into()
+                    } else {
+                        found.join(" ")
+                    }
+                );
+            }
+            Err(e) => {
+                let _ = writeln!(out, "  couldn't unpack first {}: {e}", chunk_name(kind));
+            }
+        }
+    }
+    out
+}
+
+fn count(hay: &[u8], needle: &[u8]) -> usize {
+    hay.windows(needle.len()).filter(|w| *w == needle).count()
 }
 
 /// The downloaded replay for `match_id`, if there is one: a `.vrf` whose
@@ -430,6 +528,9 @@ pub fn describe(path: &Path) -> String {
             );
         }
     }
+    if report.header.as_ref().is_some_and(|h| h.compressed == Some(true)) {
+        out.push_str(&decode_check(path, &report));
+    }
     if let Some(n) = &report.note {
         let _ = writeln!(out, "  note: {n}");
     }
@@ -535,10 +636,13 @@ mod tests {
         put(&mut v, 1); // compressed
         put(&mut v, 0); // encrypted
         put(&mut v, 0); // key
-        put(&mut v, 1); // ReplayData
-        put(&mut v, 12 + 20);
+        put(&mut v, 1); // ReplayData: t1, t2, size, memory size, data
+        put(&mut v, 16 + 28);
         put(&mut v, 0);
         put(&mut v, 5000);
+        put(&mut v, 28);
+        put(&mut v, 20);
+        put(&mut v, 20); // block: uncompressed 20, compressed 20 (stored)
         put(&mut v, 20);
         v.extend_from_slice(&[9u8; 20]);
         let r = inspect(&mut std::io::Cursor::new(v)).unwrap();
@@ -553,8 +657,28 @@ mod tests {
         assert_eq!(h.compressed, Some(true));
         assert_eq!(r.chunks.len(), 1);
         assert_eq!(r.chunks[0].times, Some((0, 5000)));
-        assert_eq!(r.chunks[0].data_size, Some(20));
+        assert_eq!(r.chunks[0].data_size, Some(28));
         assert!(r.note.is_none(), "{:?}", r.note);
+    }
+
+    #[test]
+    fn unpack_checks_block_sizes() {
+        let mut stored = Vec::new();
+        stored.extend_from_slice(&5u32.to_le_bytes());
+        stored.extend_from_slice(&5u32.to_le_bytes());
+        stored.extend_from_slice(b"hello");
+        assert_eq!(unpack(&stored).unwrap(), b"hello");
+        // Size fields that don't match the block are refused, not trusted.
+        let mut bad = stored.clone();
+        bad[4] = 9;
+        assert!(unpack(&bad).is_err());
+        assert!(unpack(&[1, 2, 3]).is_err());
+        // Garbage that claims to be Oodle fails cleanly instead of panicking.
+        let mut junk = Vec::new();
+        junk.extend_from_slice(&100u32.to_le_bytes());
+        junk.extend_from_slice(&6u32.to_le_bytes());
+        junk.extend_from_slice(&[0x8c, 0x0a, 1, 2, 3, 4]);
+        assert!(unpack(&junk).is_err());
     }
 
     #[test]
