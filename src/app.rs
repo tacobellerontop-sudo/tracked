@@ -275,6 +275,8 @@ pub struct AppState {
     pub match_perspective: Option<Puuid>,
     pub return_to: Screen,
     pub replay: ReplayView,
+    /// Smoothed UI time per frame in ms (diagnostics).
+    pub frame_ms: f32,
     pub live: Option<LiveMatch>,
     pub names: HashMap<Puuid, RiotId>,
     pub probes: HashMap<Puuid, Result<PlayerProbe, String>>,
@@ -324,6 +326,7 @@ impl AppState {
             match_perspective: None,
             return_to: Screen::Home,
             replay: ReplayView::default(),
+            frame_ms: 0.0,
             live: None,
             names: HashMap::new(),
             probes: HashMap::new(),
@@ -607,6 +610,7 @@ impl App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let started = Instant::now();
         while let Ok(update) = self.updates.try_recv() {
             self.state.apply(update);
         }
@@ -617,6 +621,17 @@ impl eframe::App for App {
         crate::ui::theme::set_animations(ctx, self.state.settings.animations);
         self.track_window(ctx);
         crate::ui::draw(ctx, &mut self.state, &self.intents);
+        // UI work per frame (not GPU time), shown in Settings; slow frames
+        // are logged so lag can be diagnosed from the log file.
+        let ms = started.elapsed().as_secs_f32() * 1000.0;
+        self.state.frame_ms = if self.state.frame_ms == 0.0 {
+            ms
+        } else {
+            self.state.frame_ms * 0.9 + ms * 0.1
+        };
+        if ms > 50.0 {
+            tracing::info!(screen = ?self.state.screen, ms = format!("{ms:.1}"), "slow frame");
+        }
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {

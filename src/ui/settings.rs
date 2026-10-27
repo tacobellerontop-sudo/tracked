@@ -41,9 +41,12 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
                     ui.radio_value(&mut state.settings.renderer, RendererPref::OpenGl, "OpenGL");
                 });
                 ui.label(
-                    egui::RichText::new(format!("Now: {} · changes apply after a restart", state.renderer))
-                        .small()
-                        .weak(),
+                    egui::RichText::new(format!(
+                        "Now: {} · UI work {:.1} ms per frame · changes apply after a restart",
+                        state.renderer, state.frame_ms
+                    ))
+                    .small()
+                    .weak(),
                 );
             });
             ui.end_row();
