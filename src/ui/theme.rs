@@ -82,6 +82,95 @@ fn palette_id() -> egui::Id {
 /// Inter (SIL Open Font License, see assets/fonts) for text, Phosphor for
 /// icons, egui's defaults as fallbacks (emoji, CJK, monospace).
 pub fn install_fonts(ctx: &egui::Context) {
+    ctx.set_fonts(font_definitions(&[]));
+    // Scripts Inter doesn't cover (Chinese, Japanese, Korean, Thai, Arabic…)
+    // come from fonts the OS already has. They're large, so they load in the
+    // background and the fonts are swapped in when ready.
+    let ctx = ctx.clone();
+    std::thread::Builder::new()
+        .name("fonts".into())
+        .spawn(move || {
+            let extra = load_script_fonts();
+            if !extra.is_empty() {
+                tracing::info!(fonts = ?extra.iter().map(|f| &f.0).collect::<Vec<_>>(), "script fallback fonts loaded");
+                ctx.set_fonts(font_definitions(&extra));
+                ctx.request_repaint();
+            }
+        })
+        .ok();
+}
+
+/// System fonts for scripts Inter lacks, in fallback order (first found per
+/// script). Windows paths first; the Linux ones are for development.
+const SCRIPT_FONTS: &[(&str, &[&str])] = &[
+    // Arabic, Hebrew, Armenian, Georgian and more.
+    (
+        "segoe-ui",
+        &[
+            r"C:\Windows\Fonts\segoeui.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf",
+        ],
+    ),
+    // Chinese (YaHei also has traditional characters; on Linux these fonts
+    // cover kana and Hangul too).
+    (
+        "cjk-sc",
+        &[
+            r"C:\Windows\Fonts\msyh.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+        ],
+    ),
+    // Japanese kana.
+    (
+        "japanese",
+        &[
+            r"C:\Windows\Fonts\YuGothR.ttc",
+            r"C:\Windows\Fonts\meiryo.ttc",
+            r"C:\Windows\Fonts\msgothic.ttc",
+        ],
+    ),
+    // Korean Hangul.
+    ("korean", &[r"C:\Windows\Fonts\malgun.ttf"]),
+    // Thai, Lao, Khmer.
+    (
+        "thai",
+        &[
+            r"C:\Windows\Fonts\LeelawUI.ttf",
+            r"C:\Windows\Fonts\leelawad.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSansThai-Regular.ttf",
+        ],
+    ),
+    // Devanagari and other Indian scripts.
+    (
+        "indic",
+        &[r"C:\Windows\Fonts\Nirmala.ttf", r"C:\Windows\Fonts\Nirmala.ttc"],
+    ),
+];
+
+/// Read the first available file for each script. Windows paths follow
+/// the actual Windows folder (`%WINDIR%`), which isn't always `C:\Windows`.
+pub fn load_script_fonts() -> Vec<(String, Arc<FontData>)> {
+    let windir = std::env::var("WINDIR").unwrap_or_else(|_| r"C:\Windows".into());
+    SCRIPT_FONTS
+        .iter()
+        .filter_map(|(key, paths)| {
+            let bytes = paths.iter().find_map(|p| {
+                let path = match p.strip_prefix(r"C:\Windows") {
+                    Some(rest) => format!("{windir}{rest}"),
+                    None => p.to_string(),
+                };
+                std::fs::read(path).ok()
+            })?;
+            Some((key.to_string(), Arc::new(FontData::from_owned(bytes))))
+        })
+        .collect()
+}
+
+/// Inter (three weights), Phosphor icons, egui's defaults, and `extra`
+/// script fonts appended as fallbacks to every text family.
+pub fn font_definitions(extra: &[(String, Arc<FontData>)]) -> FontDefinitions {
     let mut fonts = FontDefinitions::default();
     let add = |fonts: &mut FontDefinitions, key: &str, bytes: &'static [u8]| {
         fonts
@@ -109,7 +198,11 @@ pub fn install_fonts(ctx: &egui::Context) {
     fonts
         .families
         .insert(FontFamily::Name("icons".into()), vec!["phosphor".into()]);
-    let fallbacks: Vec<String> = fonts.families[&FontFamily::Proportional].clone();
+    for (key, data) in extra {
+        fonts.font_data.insert(key.clone(), data.clone());
+    }
+    let mut fallbacks: Vec<String> = fonts.families[&FontFamily::Proportional].clone();
+    fallbacks.extend(extra.iter().map(|(k, _)| k.clone()));
     for (family, key) in [
         (FontFamily::Proportional, "inter"),
         (FontFamily::Name("medium".into()), "inter-medium"),
@@ -119,7 +212,10 @@ pub fn install_fonts(ctx: &egui::Context) {
         list.extend(fallbacks.iter().cloned());
         fonts.families.insert(family, list);
     }
-    ctx.set_fonts(fonts);
+    if let Some(mono) = fonts.families.get_mut(&FontFamily::Monospace) {
+        mono.extend(extra.iter().map(|(k, _)| k.clone()));
+    }
+    fonts
 }
 
 /// Font for Phosphor icon glyphs.

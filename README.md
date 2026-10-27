@@ -23,6 +23,8 @@ A lightweight, native desktop companion for VALORANT, written in Rust with
   Client's own chat. No account or backend needed
 - **GPU rendering:** OpenGL on your GPU by default; Direct3D 12 / Vulkan (wgpu) as an option
   in Settings → Renderer. Each falls back to the other if it can't start
+- **Every script:** names in Chinese, Japanese, Korean, Thai, Arabic, Hebrew, Indian
+  scripts and more use the fonts Windows already has (loaded in the background at startup)
 - **Slim title bar:** the app draws its own minimal title bar (drag, double-click to maximize,
   edge resize). Settings → Window switches back to the system one
 

@@ -30,7 +30,17 @@ const AGENTS: &[&str] = &[
 ];
 const MAPS: &[&str] = &["Ascent", "Bind", "Haven", "Split", "Lotus", "Sunset", "Icebox", "Pearl"];
 const NAMES: &[&str] = &[
-    "you", "Nimbus", "kettle", "Orchid", "zeroday", "Paprika", "lowtide", "Quasar", "brick", "Vesper",
+    // A few non-Latin names so the script fallback fonts get exercised.
+    "you",
+    "Nimbus",
+    "케틀",
+    "蘭花",
+    "zeroday",
+    "パプリカ",
+    "ปาปริก้า",
+    "Quasar",
+    "brick",
+    "Vesper",
 ];
 const TIER_NAMES: &[&str] = &[
     "Iron",
