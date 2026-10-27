@@ -86,6 +86,10 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
 
     ui.add_space(16.0);
     ui.separator();
+    replay_files(ui, state, intents);
+
+    ui.add_space(16.0);
+    ui.separator();
     ui.label(egui::RichText::new("About").strong());
     ui.horizontal(|ui| {
         ui.label(format!("Tracked v{}", env!("CARGO_PKG_VERSION")));
@@ -229,5 +233,44 @@ fn region_name(code: &str) -> &'static str {
         "ap" => "Asia Pacific (AP)",
         "kr" => "Korea (KR)",
         _ => "Unknown",
+    }
+}
+
+/// Inspect VALORANT's downloaded replay files (structure only), so exact
+/// movement can be decoded from them later.
+fn replay_files(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
+    ui.label(egui::RichText::new("Replay files").strong());
+    ui.weak(
+        "Checks the replays VALORANT has downloaded (Saved\\Demos) and reports how the files are laid out. \
+         It reads the files only, never the game, and shows no player names or positions.",
+    );
+    ui.horizontal(|ui| {
+        if ui.button("Check replay files").clicked() {
+            intents.send(Intent::CheckReplayFiles);
+            // Empty = running; the worker replies with the report.
+            state.replay_file_report = Some(String::new());
+        }
+        if let Some(report) = state.replay_file_report.as_deref().filter(|r| !r.is_empty()) {
+            if ui.button("Copy report").clicked() {
+                ui.ctx().copy_text(report.to_string());
+            }
+        }
+    });
+    match state.replay_file_report.as_deref() {
+        Some("") => {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.weak("Reading replay files…");
+            });
+        }
+        Some(report) => {
+            egui::ScrollArea::vertical()
+                .id_salt("replay-file-report")
+                .max_height(220.0)
+                .show(ui, |ui| {
+                    ui.add(egui::Label::new(egui::RichText::new(report).monospace().size(11.0)).wrap());
+                });
+        }
+        None => {}
     }
 }

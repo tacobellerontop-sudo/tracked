@@ -148,6 +148,12 @@ riot-probe --replay            # your latest match: prints round 1's kills, writ
 riot-probe --replay <matchId>  # a specific match
 ```
 
+**Downloaded replays (work in progress).** VALORANT can download a match's replay to your PC
+(`%LOCALAPPDATA%\VALORANT\Saved\Demos`, `.vrf`). Those files hold real movement, but their
+format is undocumented. Tracked notices when a match has one, and **Settings → Replay files →
+Check replay files** (or `riot-probe --vrf`) reports how the files are laid out, so a parser can
+be built. It only reads the files on disk, never the game. Until then, playback stays smoothed.
+
 `replay-check.png` is the real minimap with valorant-api's named callouts (white), every
 plant in the match (yellow) and the players at round 1's first kill. If the white dots sit in
 their areas and the yellow ones on the sites, the coordinate transform is right.

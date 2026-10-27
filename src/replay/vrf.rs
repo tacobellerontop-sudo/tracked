@@ -230,6 +230,132 @@ pub fn inspect<R: Read + Seek>(r: &mut R) -> std::io::Result<Report> {
     Ok(report)
 }
 
+/// The downloaded replay for `match_id`, if there is one: a `.vrf` whose
+/// file name or Unreal replay name contains the match id.
+pub fn find_for_match(match_id: &str) -> Option<PathBuf> {
+    let dir = demos_dir()?;
+    let id = match_id.to_ascii_lowercase();
+    let files = list(&dir);
+    if let Some(p) = files.iter().find(|p| {
+        p.file_name()
+            .is_some_and(|n| n.to_string_lossy().to_ascii_lowercase().contains(&id))
+    }) {
+        return Some(p.clone());
+    }
+    files.into_iter().find(|p| {
+        std::fs::File::open(p)
+            .and_then(|mut f| inspect_header(&mut f))
+            .ok()
+            .flatten()
+            .is_some_and(|h| h.friendly_name.to_ascii_lowercase().contains(&id))
+    })
+}
+
+/// Just the Unreal header (reads the first 64 KiB only).
+fn inspect_header<R: Read + Seek>(r: &mut R) -> std::io::Result<Option<UeHeader>> {
+    let size = r.seek(SeekFrom::End(0))?;
+    r.seek(SeekFrom::Start(0))?;
+    let mut first = vec![0u8; size.min(64 * 1024) as usize];
+    r.read_exact(&mut first)?;
+    let mut c = std::io::Cursor::new(first);
+    // Same walk as `inspect`, on the in-memory prefix (chunk walk stops early).
+    Ok(inspect(&mut c)?.header)
+}
+
+/// Human-readable structure report for one replay file.
+pub fn describe(path: &Path) -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "file {}",
+        path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default()
+    );
+    let report = match std::fs::File::open(path).and_then(|mut f| inspect(&mut f)) {
+        Ok(r) => r,
+        Err(e) => {
+            let _ = writeln!(out, "  couldn't read it: {e}");
+            return out;
+        }
+    };
+    let _ = writeln!(out, "  size {} bytes", report.size);
+    let _ = writeln!(out, "  first 64 bytes: {}", report.prefix);
+    match &report.header {
+        Some(h) => {
+            let _ = writeln!(
+                out,
+                "  unreal header at {}: file version {}, length {} s, network version {}, changelist {}, \
+                 compressed {:?}, encrypted {:?}, live {}",
+                h.offset,
+                h.file_version,
+                h.length_ms / 1000,
+                h.network_version,
+                h.changelist,
+                h.compressed,
+                h.encrypted,
+                h.is_live
+            );
+        }
+        None => {
+            let _ = writeln!(out, "  no Unreal replay header found");
+        }
+    }
+    let mut counts = std::collections::BTreeMap::<u32, (usize, u64)>::new();
+    for c in &report.chunks {
+        let e = counts.entry(c.kind).or_default();
+        e.0 += 1;
+        e.1 += c.size as u64;
+    }
+    for (kind, (n, bytes)) in &counts {
+        let _ = writeln!(out, "  chunks {:<10} x{n:<5} {bytes} bytes", chunk_name(*kind));
+    }
+    for kind in counts.keys() {
+        if let Some(c) = report.chunks.iter().find(|c| c.kind == *kind) {
+            let _ = writeln!(
+                out,
+                "  first {:<10} @{} size {} entropy {:.2} head {}",
+                chunk_name(c.kind),
+                c.offset,
+                c.size,
+                c.entropy,
+                c.head
+            );
+        }
+    }
+    if let Some(n) = &report.note {
+        let _ = writeln!(out, "  note: {n}");
+    }
+    out
+}
+
+/// Report on `path`, or on the two newest files in the Demos folder.
+pub fn check_all(path: Option<PathBuf>) -> String {
+    let files = match path {
+        Some(p) => vec![p],
+        None => match demos_dir() {
+            Some(dir) => {
+                let files = list(&dir);
+                if files.is_empty() {
+                    return "No downloaded replays yet. In VALORANT, open a match in your history and download its replay.\n"
+                        .into();
+                }
+                files.into_iter().take(2).collect()
+            }
+            None => {
+                return "No replay folder found (%LOCALAPPDATA%\\VALORANT\\Saved\\Demos). \
+                        Download a replay from your match history in VALORANT first.\n"
+                    .into();
+            }
+        },
+    };
+    let mut out = format!("Tracked v{} replay file check\n", env!("CARGO_PKG_VERSION"));
+    for p in files {
+        out.push_str(&describe(&p));
+    }
+    out.push_str("(no player names or positions; at most the match id)\n");
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

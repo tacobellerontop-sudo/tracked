@@ -267,7 +267,14 @@ pub async fn load_replay(ctx: &Arc<Ctx>, id: &str) -> Result<Arc<crate::replay::
         }
     };
     let raw: crate::replay::fetch::MatchDetailsRaw = serde_json::from_value(json)?;
-    let replay = crate::replay::from_raw(&raw);
+    let mut replay = crate::replay::from_raw(&raw);
+    // Looking for VALORANT's downloaded replay reads the local Demos folder.
+    let match_id = id.to_string();
+    replay.replay_file = tokio::task::spawn_blocking(move || crate::replay::vrf::find_for_match(&match_id))
+        .await
+        .ok()
+        .flatten()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()));
     if let Some(r) = replay.rounds.first() {
         tracing::debug!(
             match_id = id,

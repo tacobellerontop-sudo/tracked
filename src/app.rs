@@ -277,6 +277,8 @@ pub struct AppState {
     pub replay: ReplayView,
     /// Smoothed UI time per frame in ms (diagnostics).
     pub frame_ms: f32,
+    /// Result of Settings → "Check replay files" (`None` while running).
+    pub replay_file_report: Option<String>,
     pub live: Option<LiveMatch>,
     pub names: HashMap<Puuid, RiotId>,
     pub probes: HashMap<Puuid, Result<PlayerProbe, String>>,
@@ -327,6 +329,7 @@ impl AppState {
             return_to: Screen::Home,
             replay: ReplayView::default(),
             frame_ms: 0.0,
+            replay_file_report: None,
             live: None,
             names: HashMap::new(),
             probes: HashMap::new(),
@@ -379,6 +382,7 @@ impl AppState {
             Update::MatchDetails(id, m) => {
                 self.matches.insert(id, m);
             }
+            Update::ReplayFileReport(r) => self.replay_file_report = Some(r),
             Update::Replay { match_id, result } => {
                 if self.replay.match_id.as_deref() == Some(match_id.as_str()) {
                     self.replay.data = Some(result.map_err(|e| e.0));

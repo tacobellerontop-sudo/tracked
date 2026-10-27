@@ -532,6 +532,9 @@ pub async fn run(mut intents: IntentRx, ctx: Arc<Ctx>) {
                 }));
             }
             Intent::SaveSettings(s) => tasks::save_settings(ctx.clone(), s).await,
+            Intent::CheckReplayFiles => ctx
+                .sink
+                .send(Update::ReplayFileReport(crate::replay::vrf::check_all(None))),
             Intent::OpenReplay(id) => {
                 let result = match seed_of(&id) {
                     Some(seed) => Ok(Arc::new(synthetic_replay(seed))),

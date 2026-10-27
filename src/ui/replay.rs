@@ -145,13 +145,17 @@ fn header(ui: &mut Ui, state: &mut AppState, p: &Palette) {
             );
         }
     });
-    ui.label(
-        RichText::new(
-            "Riot records positions only at each kill, plant and defuse; movement in between is smoothed for viewing, not tracked.",
-        )
-        .size(11.5)
-        .color(p.faint),
-    );
+    // Which movement source this replay uses.
+    let note = match data.as_ref().and_then(|m| m.replay_file.as_deref()) {
+        Some(file) => format!(
+            "Movement: smoothed between recorded moments. Found your downloaded replay ({file}); \
+             exact movement from replay files isn't decoded yet."
+        ),
+        None => "Movement: smoothed between recorded moments (Riot's match data only has positions at each kill, \
+                 plant and defuse). Not tracked."
+            .to_string(),
+    };
+    ui.label(RichText::new(note).size(11.5).color(p.faint));
     ui.add_space(8.0);
 }
 

@@ -167,6 +167,14 @@ impl Supervisor {
             Intent::RefreshCareer => {
                 tokio::spawn(tasks::refresh_career(ctx));
             }
+            Intent::CheckReplayFiles => {
+                tokio::spawn(async move {
+                    let report = tokio::task::spawn_blocking(|| crate::replay::vrf::check_all(None))
+                        .await
+                        .unwrap_or_else(|e| format!("check failed: {e}"));
+                    ctx.sink.send(Update::ReplayFileReport(report));
+                });
+            }
             Intent::OpenReplay(id) => {
                 tokio::spawn(async move {
                     let result = tasks::load_replay(&ctx, &id)

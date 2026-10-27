@@ -271,3 +271,33 @@ fn playback_matches_every_snapshot_of_a_full_match() {
         }
     }
 }
+
+#[test]
+fn downloaded_replays_are_matched_by_id() {
+    use tracked::replay::vrf;
+    let root = std::env::temp_dir().join(format!("tracked-vrf-{}", std::process::id()));
+    let demos = root.join("VALORANT").join("Saved").join("Demos");
+    std::fs::create_dir_all(&demos).unwrap();
+    std::env::set_var("LOCALAPPDATA", &root);
+
+    // One file named after its match, one whose Unreal replay name carries it.
+    let by_name = "11111111-2222-4333-8444-555555555555";
+    std::fs::write(demos.join(format!("{by_name}.vrf")), b"anything").unwrap();
+    let by_header = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    let mut v = b"RIOT".to_vec();
+    for x in [vrf::UE_REPLAY_MAGIC, 6, 1000, 1, 1] {
+        v.extend_from_slice(&x.to_le_bytes());
+    }
+    let name = format!("{by_header}\0");
+    v.extend_from_slice(&(name.len() as u32).to_le_bytes());
+    v.extend_from_slice(name.as_bytes());
+    v.extend_from_slice(&[0u8; 32]);
+    std::fs::write(demos.join("replay2.vrf"), v).unwrap();
+
+    let file = |id: &str| vrf::find_for_match(id).and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()));
+    assert_eq!(file(by_name).as_deref(), Some(&*format!("{by_name}.vrf")));
+    assert_eq!(file(by_header).as_deref(), Some("replay2.vrf"));
+    assert_eq!(file("99999999-0000-4000-8000-000000000000"), None);
+    assert!(vrf::check_all(None).contains("replay file check"));
+    let _ = std::fs::remove_dir_all(&root);
+}

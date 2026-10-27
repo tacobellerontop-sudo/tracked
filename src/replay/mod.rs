@@ -131,6 +131,10 @@ pub struct MatchReplay {
     pub teams: Vec<TeamResult>,
     pub rounds: Vec<RoundReplay>,
     pub availability: Availability,
+    /// File name of VALORANT's downloaded replay (`.vrf`) for this match, if
+    /// one is on disk. Exact movement will come from it once its format is
+    /// decoded; until then playback is smoothed between recorded moments.
+    pub replay_file: Option<String>,
 }
 
 impl MatchReplay {
@@ -206,6 +210,7 @@ pub fn from_raw(raw: &MatchDetailsRaw) -> MatchReplay {
         players,
         rounds,
         availability,
+        replay_file: None,
     }
 }
 

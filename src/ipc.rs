@@ -28,6 +28,8 @@ pub enum Intent {
     LoadMatchDetails(MatchId),
     /// Fetch match-details and build the 2D replay.
     OpenReplay(MatchId),
+    /// Inspect VALORANT's downloaded replay files (Settings).
+    CheckReplayFiles,
     LookupPlayer {
         name: String,
         tag: String,
@@ -230,6 +232,8 @@ pub enum Update {
     },
     Career(CareerSummary),
     MatchDetails(MatchId, Arc<MatchDetail>),
+    /// Text report from [`Intent::CheckReplayFiles`].
+    ReplayFileReport(String),
     Replay {
         match_id: MatchId,
         result: Result<Arc<crate::replay::MatchReplay>, UserFacingError>,

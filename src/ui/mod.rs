@@ -29,7 +29,8 @@ use theme::pal;
 pub const DISCLAIMER: &str = "Tracked is an unofficial third-party tool. It is not affiliated with, \
 endorsed, sponsored or approved by Riot Games. VALORANT and Riot Games are trademarks of Riot Games, Inc. \
 You use this app at your own risk and remain subject to Riot's Terms of Service.\n\n\
-Tracked only uses the Riot Client's local API and Riot's web endpoints with tokens the client issued. \
+Tracked only uses the Riot Client's local API, Riot's web endpoints with tokens the client issued, \
+and replay files VALORANT has downloaded to your PC (read from disk). \
 It never reads game memory, never injects into or modifies any Riot process, and never automates gameplay.";
 
 const NAV: &[(Screen, &str, Icon, egui::Key)] = &[
