@@ -8,6 +8,7 @@
 pub mod calibrate;
 pub mod fetch;
 pub mod timeline;
+pub mod vrf;
 
 use std::collections::{HashMap, HashSet};
 

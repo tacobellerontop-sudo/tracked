@@ -10,6 +10,10 @@
 //!     riot-probe --replay [matchId]
 //!                           # 2D replay check on your latest (or given) match:
 //!                           # prints round 1's kills and writes replay-check.png
+//!     riot-probe --vrf [file.vrf]
+//!                           # structure of VALORANT's downloaded replay files
+//!                           # (newest in the Demos folder by default); no Riot
+//!                           # connection needed, prints no match contents
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -46,6 +50,14 @@ async fn main() {
         "Tracked riot-probe v{} — prints no passwords or tokens",
         env!("CARGO_PKG_VERSION")
     );
+    if let Some(i) = args.iter().position(|a| a == "--vrf") {
+        let path = args
+            .get(i + 1)
+            .filter(|a| !a.starts_with("--"))
+            .map(std::path::PathBuf::from);
+        vrf_check(path);
+        return;
+    }
     let http = riot::public_http();
     let mut last_wait = String::new();
 
@@ -306,4 +318,81 @@ fn line(img: &mut image::RgbaImage, a: (f32, f32), b: (f32, f32), c: [u8; 4]) {
         let t = i as f32 / steps as f32;
         dot(img, a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t, 1.5, c);
     }
+}
+
+/// Report the structure of downloaded replay files (no Riot connection).
+fn vrf_check(path: Option<std::path::PathBuf>) {
+    use tracked::replay::vrf;
+    let files = match path {
+        Some(p) => vec![p],
+        None => match vrf::demos_dir() {
+            Some(dir) => {
+                let files = vrf::list(&dir);
+                println!("vrf   {} replay file(s) in {}", files.len(), dir.display());
+                files.into_iter().take(2).collect()
+            }
+            None => {
+                return println!(
+                    "vrf ✗ no Demos folder found (%LOCALAPPDATA%\\VALORANT\\Saved\\Demos). \
+                     Download a replay in VALORANT first, or pass a file: riot-probe --vrf <file.vrf>"
+                );
+            }
+        },
+    };
+    if files.is_empty() {
+        return println!("vrf ✗ no .vrf files yet: download a replay from your match history in VALORANT");
+    }
+    for p in files {
+        println!("\nvrf   {}", p.display());
+        let report = std::fs::File::open(&p).and_then(|mut f| vrf::inspect(&mut f));
+        let r = match report {
+            Ok(r) => r,
+            Err(e) => {
+                println!("vrf ✗ couldn't read it: {e}");
+                continue;
+            }
+        };
+        println!("      size {} bytes", r.size);
+        println!("      first 64 bytes: {}", r.prefix);
+        match &r.header {
+            Some(h) => println!(
+                "      unreal header at {}: file version {}, length {} s, network version {}, changelist {}, \
+                 compressed {:?}, encrypted {:?}, live {}",
+                h.offset,
+                h.file_version,
+                h.length_ms / 1000,
+                h.network_version,
+                h.changelist,
+                h.compressed,
+                h.encrypted,
+                h.is_live
+            ),
+            None => println!("      no Unreal replay header found"),
+        }
+        let mut counts = std::collections::BTreeMap::<u32, (usize, u64)>::new();
+        for c in &r.chunks {
+            let e = counts.entry(c.kind).or_default();
+            e.0 += 1;
+            e.1 += c.size as u64;
+        }
+        for (kind, (n, bytes)) in &counts {
+            println!("      chunks {:<10} x{n:<5} {bytes} bytes", vrf::chunk_name(*kind));
+        }
+        for kind in counts.keys() {
+            if let Some(c) = r.chunks.iter().find(|c| c.kind == *kind) {
+                println!(
+                    "      first {:<10} @{} size {} entropy {:.2} head {}",
+                    vrf::chunk_name(c.kind),
+                    c.offset,
+                    c.size,
+                    c.entropy,
+                    c.head
+                );
+            }
+        }
+        if let Some(n) = &r.note {
+            println!("      note: {n}");
+        }
+    }
+    println!("\nvrf   copy everything above and send it over; it contains no player names or positions (at most the match id).");
 }
