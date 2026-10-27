@@ -196,9 +196,11 @@ other. `tests/social_e2e.rs` runs the real worker against it in-process.
 
 ## Rendering
 
-`main.rs` starts eframe with the wgpu renderer (Direct3D 12 on Windows, Vulkan elsewhere).
-winit can't create a second event loop in one process, so if wgpu fails the app relaunches
-itself with `--opengl`. Settings → Renderer can force OpenGL. The active adapter is shown
-in Settings. Text uses Inter (SIL OFL, `assets/fonts/Inter-LICENSE.txt`); icons use
+`main.rs` starts eframe with OpenGL (glow) on the GPU. Settings → Renderer can pick wgpu
+(Direct3D 12 on Windows, Vulkan elsewhere) instead, with at most one queued frame: with
+wgpu's defaults the window felt laggy on some Windows PCs where OpenGL was smooth. winit
+can't create a second event loop in one process, so if the chosen renderer fails the app
+relaunches itself with the other one (`--wgpu` / `--opengl`, which never fall back again).
+The active adapter and the UI time per frame are shown in Settings. Text uses Inter (SIL OFL, `assets/fonts/Inter-LICENSE.txt`); icons use
 Phosphor (MIT, via `egui-phosphor`) in their own `icons` font family, because Inter and
 Phosphor both define glyphs in the private-use area.

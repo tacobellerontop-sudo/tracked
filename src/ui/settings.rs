@@ -32,13 +32,21 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
             ui.label("Renderer");
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
-                    ui.radio_value(
-                        &mut state.settings.renderer,
-                        RendererPref::Auto,
-                        "GPU (Direct3D 12 / Vulkan)",
-                    )
-                    .on_hover_text("Uses wgpu; falls back to OpenGL automatically if it can't start.");
-                    ui.radio_value(&mut state.settings.renderer, RendererPref::OpenGl, "OpenGL");
+                    let wgpu = state.settings.renderer.uses_wgpu();
+                    if ui
+                        .radio(!wgpu, "OpenGL (recommended)")
+                        .on_hover_text("Runs on your GPU. Falls back to Direct3D 12 / Vulkan if it can't start.")
+                        .clicked()
+                    {
+                        state.settings.renderer = RendererPref::Auto;
+                    }
+                    if ui
+                        .radio(wgpu, "Direct3D 12 / Vulkan (experimental)")
+                        .on_hover_text("Uses wgpu. Can feel laggy on some PCs; falls back to OpenGL if it can't start.")
+                        .clicked()
+                    {
+                        state.settings.renderer = RendererPref::Wgpu;
+                    }
                 });
                 ui.label(
                     egui::RichText::new(format!(

@@ -1,13 +1,19 @@
 // Release builds are a GUI app: no console window on Windows (logs go to the log file).
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use tracked::config::{self, RendererPref, Settings};
+use tracked::config::{self, Settings};
 use tracked::{app::App, ipc, logging, worker};
 
 const MIN_SIZE: [f32; 2] = [1000.0, 660.0];
 
 fn options(settings: &Settings, renderer: eframe::Renderer) -> eframe::NativeOptions {
     eframe::NativeOptions {
+        // If wgpu is chosen, keep at most one frame queued: its default
+        // queue added visible input lag on some Windows drivers.
+        wgpu_options: eframe::egui_wgpu::WgpuConfiguration {
+            desired_maximum_frame_latency: Some(1),
+            ..Default::default()
+        },
         viewport: egui::ViewportBuilder::default()
             .with_title("Tracked")
             .with_inner_size([
@@ -47,30 +53,39 @@ fn main() -> eframe::Result<()> {
     let debug = std::env::args().any(|a| a == "--debug");
     let demo = std::env::args().any(|a| a == "--demo");
     let force_gl = std::env::args().any(|a| a == "--opengl");
+    let force_wgpu = std::env::args().any(|a| a == "--wgpu");
     let _log_guard = logging::init(debug);
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "starting tracked");
 
     let settings = config::load();
-    if force_gl || settings.renderer == RendererPref::OpenGl {
-        return run(settings, demo, eframe::Renderer::Glow);
-    }
-    // GPU via wgpu (Direct3D 12 / Vulkan). winit can't create a second event
-    // loop in one process, so the OpenGL fallback relaunches the app.
-    match run(settings, demo, eframe::Renderer::Wgpu) {
-        Err(e) => {
-            tracing::warn!("wgpu renderer failed ({e}); relaunching with OpenGL");
-            relaunch_with_opengl().map_err(|_| e)
+    // OpenGL (on the GPU) by default; wgpu (Direct3D 12 / Vulkan) when chosen.
+    // A forced flag means we're the fallback relaunch: no further fallback.
+    let (first, fallback) = if force_gl {
+        (eframe::Renderer::Glow, None)
+    } else if force_wgpu {
+        (eframe::Renderer::Wgpu, None)
+    } else if settings.renderer.uses_wgpu() {
+        (eframe::Renderer::Wgpu, Some("--opengl"))
+    } else {
+        (eframe::Renderer::Glow, Some("--wgpu"))
+    };
+    // winit can't create a second event loop in one process, so the fallback
+    // relaunches the app with the other renderer.
+    match (run(settings, demo, first), fallback) {
+        (Err(e), Some(flag)) => {
+            tracing::warn!("{first:?} renderer failed ({e}); relaunching with {flag}");
+            relaunch_with(flag).map_err(|_| e)
         }
-        ok => ok,
+        (result, _) => result,
     }
 }
 
-/// Run this executable again with `--opengl` and wait for it.
-fn relaunch_with_opengl() -> std::io::Result<()> {
+/// Run this executable again with `flag` and wait for it.
+fn relaunch_with(flag: &str) -> std::io::Result<()> {
     let exe = std::env::current_exe()?;
     let status = std::process::Command::new(exe)
         .args(std::env::args_os().skip(1))
-        .arg("--opengl")
+        .arg(flag)
         .status()?;
     std::process::exit(status.code().unwrap_or(1));
 }

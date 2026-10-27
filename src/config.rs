@@ -17,11 +17,20 @@ pub enum Theme {
 /// Which renderer to use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum RendererPref {
-    /// GPU via wgpu (Direct3D 12 / Vulkan), falling back to OpenGL.
+    /// The recommended renderer: OpenGL (GPU), falling back to wgpu.
     #[default]
     Auto,
-    /// OpenGL only (for drivers where wgpu misbehaves).
+    /// OpenGL (GPU).
     OpenGl,
+    /// wgpu: Direct3D 12 / Vulkan, falling back to OpenGL. Experimental:
+    /// it was laggy on some Windows machines where OpenGL is smooth.
+    Wgpu,
+}
+
+impl RendererPref {
+    pub fn uses_wgpu(self) -> bool {
+        self == RendererPref::Wgpu
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

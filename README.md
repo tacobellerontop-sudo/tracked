@@ -21,7 +21,8 @@ A lightweight, native desktop companion for VALORANT, written in Rust with
 - **Social:** your Riot friends list with live status (in queue, agent select, in a match
   with the score, other Riot games), unread badges and whispers, all through the Riot
   Client's own chat. No account or backend needed
-- **GPU rendering:** wgpu (Direct3D 12 / Vulkan), falling back to OpenGL automatically
+- **GPU rendering:** OpenGL on your GPU by default; Direct3D 12 / Vulkan (wgpu) as an option
+  in Settings → Renderer. Each falls back to the other if it can't start
 - **Slim title bar:** the app draws its own minimal title bar (drag, double-click to maximize,
   edge resize). Settings → Window switches back to the system one
 
@@ -76,7 +77,7 @@ Requires a stable Rust toolchain (2021 edition).
 cargo run --release            # normal mode: start VALORANT, then the app
 cargo run --release -- --demo  # synthetic data, no Riot client needed
 cargo run --release -- --debug # more verbose logging (secrets are still never logged)
-cargo run --release -- --opengl # skip wgpu and use OpenGL (also in Settings → Renderer)
+cargo run --release -- --wgpu   # use Direct3D 12 / Vulkan instead of OpenGL (also in Settings → Renderer)
 ```
 
 The target platform is **Windows** (where VALORANT runs). The app also builds and runs
