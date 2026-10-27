@@ -13,6 +13,11 @@ use std::path::{Path, PathBuf};
 
 /// Unreal's local-file replay magic (`FLocalFileNetworkReplayStreamer`).
 pub const UE_REPLAY_MAGIC: u32 = 0x1CA2_E27F;
+/// The magic VALORANT's `.vrf` files start with instead (seen in real files;
+/// the rest of the header follows Unreal's layout).
+pub const RIOT_REPLAY_MAGIC: u32 = 0x43F4_EFDD;
+/// Magic at the start of Unreal's network demo header (the Header chunk).
+pub const DEMO_HEADER_MAGIC: u32 = 0x2CF5_A13D;
 
 /// Where VALORANT keeps downloaded replays, if the folder exists.
 pub fn demos_dir() -> Option<PathBuf> {
@@ -38,7 +43,10 @@ pub fn list(dir: &Path) -> Vec<PathBuf> {
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct UeHeader {
     pub offset: u64,
+    pub magic: u32,
     pub file_version: u32,
+    /// Unreal custom-version entries (file version 7+).
+    pub custom_versions: Vec<u32>,
     pub length_ms: u32,
     pub network_version: u32,
     pub changelist: u32,
@@ -46,6 +54,7 @@ pub struct UeHeader {
     pub is_live: bool,
     pub compressed: Option<bool>,
     pub encrypted: Option<bool>,
+    pub key_len: u32,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -55,9 +64,15 @@ pub struct ChunkInfo {
     pub size: u32,
     /// First bytes of the payload, hex.
     pub head: String,
-    /// Shannon entropy of the first 4 KiB, bits per byte (≈8 = compressed
-    /// or encrypted, lower = raw structured data).
+    /// Shannon entropy of the first 4 KiB of the data, bits per byte (≈8 =
+    /// compressed or encrypted, lower = raw structured data).
     pub entropy: f32,
+    /// Checkpoint / Event: the group name (e.g. "checkpoint", event kinds).
+    pub group: Option<String>,
+    /// ReplayData / Checkpoint / Event: start and end time (ms).
+    pub times: Option<(u32, u32)>,
+    /// Size of the payload after the chunk's own sub-header.
+    pub data_size: Option<u32>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -141,14 +156,19 @@ impl<R: Read + Seek> Cursor<'_, R> {
     }
 }
 
-/// Find Unreal's replay magic within the first 64 KiB (after any Riot marker).
-fn find_magic(buf: &[u8]) -> Option<usize> {
-    let magic = UE_REPLAY_MAGIC.to_le_bytes();
-    buf.windows(4).position(|w| w == magic)
+/// Find Riot's or Unreal's replay magic within the first 64 KiB.
+fn find_magic(buf: &[u8]) -> Option<(usize, u32)> {
+    [RIOT_REPLAY_MAGIC, UE_REPLAY_MAGIC]
+        .iter()
+        .filter_map(|m| {
+            let bytes = m.to_le_bytes();
+            buf.windows(4).position(|w| w == bytes).map(|at| (at, *m))
+        })
+        .min_by_key(|(at, _)| *at)
 }
 
-/// Inspect a replay: the prefix, the Unreal header if found, and every chunk
-/// (type, size, a short hex head and an entropy estimate).
+/// Inspect a replay: the prefix, the header, and every chunk (type, size,
+/// sub-header fields, a short hex head of the data and an entropy estimate).
 pub fn inspect<R: Read + Seek>(r: &mut R) -> std::io::Result<Report> {
     let size = r.seek(SeekFrom::End(0))?;
     r.seek(SeekFrom::Start(0))?;
@@ -159,24 +179,35 @@ pub fn inspect<R: Read + Seek>(r: &mut R) -> std::io::Result<Report> {
         prefix: hex(&first[..first.len().min(64)]),
         ..Default::default()
     };
-    let Some(at) = find_magic(&first) else {
-        report.note = Some("no Unreal replay magic in the first 64 KiB".into());
+    let Some((at, magic)) = find_magic(&first) else {
+        report.note = Some("no replay magic in the first 64 KiB".into());
         return Ok(report);
     };
     r.seek(SeekFrom::Start(at as u64 + 4))?;
     let mut c = Cursor { r };
     let mut h = UeHeader {
         offset: at as u64,
+        magic,
         ..Default::default()
     };
+    // Unreal's FLocalFileReplayInfo, in serialization order.
     let parsed: std::io::Result<()> = (|| {
         h.file_version = c.u32()?;
+        if h.file_version >= 7 {
+            let n = c.u32()?;
+            if n > 64 {
+                return Err(std::io::Error::other(format!("implausible custom version count {n}")));
+            }
+            for _ in 0..n {
+                c.r.seek(SeekFrom::Current(16))?; // GUID
+                h.custom_versions.push(c.u32()?);
+            }
+        }
         h.length_ms = c.u32()?;
         h.network_version = c.u32()?;
         h.changelist = c.u32()?;
         h.friendly_name = c.fstring()?;
         h.is_live = c.u32()? != 0;
-        // Fields added in later Unreal file versions.
         if h.file_version >= 3 {
             let _timestamp = c.i64()?;
         }
@@ -185,14 +216,15 @@ pub fn inspect<R: Read + Seek>(r: &mut R) -> std::io::Result<Report> {
         }
         if h.file_version >= 6 {
             h.encrypted = Some(c.u32()? != 0);
-            let key_len = c.u32()?;
-            if key_len > 1024 {
-                return Err(std::io::Error::other(format!("implausible key length {key_len}")));
+            h.key_len = c.u32()?;
+            if h.key_len > 1024 {
+                return Err(std::io::Error::other(format!("implausible key length {}", h.key_len)));
             }
-            c.r.seek(SeekFrom::Current(key_len as i64))?;
+            c.r.seek(SeekFrom::Current(h.key_len as i64))?;
         }
         Ok(())
     })();
+    let version = h.file_version;
     report.header = Some(h);
     if let Err(e) = parsed {
         report.note = Some(format!("header didn't parse as a known Unreal version: {e}"));
@@ -206,22 +238,52 @@ pub fn inspect<R: Read + Seek>(r: &mut R) -> std::io::Result<Report> {
         }
         let kind = c.u32()?;
         let len = c.u32()?;
-        if kind > 16 || offset + 8 + len as u64 > size {
+        let end = offset + 8 + len as u64;
+        if kind > 16 || end > size {
             report.note = Some(format!(
                 "stopped at offset {offset}: chunk type {kind} / size {len} doesn't fit the Unreal layout"
             ));
             break;
         }
-        let mut sample = vec![0u8; (len as usize).min(4096)];
-        c.r.read_exact(&mut sample)?;
-        report.chunks.push(ChunkInfo {
+        let mut info = ChunkInfo {
             offset,
             kind,
             size: len,
-            head: hex(&sample[..sample.len().min(16)]),
-            entropy: entropy(&sample),
-        });
-        c.r.seek(SeekFrom::Start(offset + 8 + len as u64))?;
+            ..Default::default()
+        };
+        // Chunk sub-headers (best effort; a failure just leaves them empty).
+        let sub: std::io::Result<()> = (|| {
+            match kind {
+                1 if version >= 4 => {
+                    let (t1, t2) = (c.u32()?, c.u32()?);
+                    info.times = Some((t1, t2));
+                    info.data_size = Some(c.u32()?);
+                }
+                2 | 3 => {
+                    let _id = c.fstring()?;
+                    info.group = Some(c.fstring()?);
+                    let _metadata = c.fstring()?;
+                    let (t1, t2) = (c.u32()?, c.u32()?);
+                    info.times = Some((t1, t2));
+                    info.data_size = Some(c.u32()?);
+                }
+                _ => {}
+            }
+            Ok(())
+        })();
+        if sub.is_err() || c.r.stream_position()? > end {
+            info.group = None;
+            info.times = None;
+            info.data_size = None;
+            c.r.seek(SeekFrom::Start(offset + 8))?;
+        }
+        let here = c.r.stream_position()?;
+        let mut sample = vec![0u8; ((end - here) as usize).min(4096)];
+        c.r.read_exact(&mut sample)?;
+        info.head = hex(&sample[..sample.len().min(16)]);
+        info.entropy = entropy(&sample);
+        report.chunks.push(info);
+        c.r.seek(SeekFrom::Start(end))?;
         if report.chunks.len() > 100_000 {
             report.note = Some("too many chunks; stopped".into());
             break;
@@ -282,22 +344,29 @@ pub fn describe(path: &Path) -> String {
     let _ = writeln!(out, "  first 64 bytes: {}", report.prefix);
     match &report.header {
         Some(h) => {
+            let magic = match h.magic {
+                RIOT_REPLAY_MAGIC => "riot",
+                UE_REPLAY_MAGIC => "unreal",
+                _ => "?",
+            };
             let _ = writeln!(
                 out,
-                "  unreal header at {}: file version {}, length {} s, network version {}, changelist {}, \
-                 compressed {:?}, encrypted {:?}, live {}",
+                "  header ({magic} magic at {}): file version {}, custom versions {:?}, length {} s, \
+                 network version {}, changelist {}, live {}, compressed {:?}, encrypted {:?} (key {} bytes)",
                 h.offset,
                 h.file_version,
+                h.custom_versions,
                 h.length_ms / 1000,
                 h.network_version,
                 h.changelist,
+                h.is_live,
                 h.compressed,
                 h.encrypted,
-                h.is_live
+                h.key_len
             );
         }
         None => {
-            let _ = writeln!(out, "  no Unreal replay header found");
+            let _ = writeln!(out, "  no replay header found");
         }
     }
     let mut counts = std::collections::BTreeMap::<u32, (usize, u64)>::new();
@@ -309,14 +378,53 @@ pub fn describe(path: &Path) -> String {
     for (kind, (n, bytes)) in &counts {
         let _ = writeln!(out, "  chunks {:<10} x{n:<5} {bytes} bytes", chunk_name(*kind));
     }
-    for kind in counts.keys() {
-        if let Some(c) = report.chunks.iter().find(|c| c.kind == *kind) {
+    // Header chunk: Unreal's network demo header?
+    if let Some(c) = report.chunks.iter().find(|c| c.kind == 0) {
+        let demo = c.head.starts_with(&hex(&DEMO_HEADER_MAGIC.to_le_bytes()));
+        let _ = writeln!(
+            out,
+            "  Header     size {} entropy {:.2} demo-header magic {} head {}",
+            c.size,
+            c.entropy,
+            if demo { "yes" } else { "no" },
+            c.head
+        );
+    }
+    // Replay data: time coverage, and the first chunks' data heads.
+    let data: Vec<&ChunkInfo> = report.chunks.iter().filter(|c| c.kind == 1).collect();
+    if !data.is_empty() {
+        let first = data.iter().filter_map(|c| c.times).map(|t| t.0).min();
+        let last = data.iter().filter_map(|c| c.times).map(|t| t.1).max();
+        let mean = data.iter().map(|c| c.entropy).sum::<f32>() / data.len() as f32;
+        let _ = writeln!(
+            out,
+            "  ReplayData covers {:?}..{:?} ms, mean entropy {mean:.2}",
+            first, last
+        );
+        for c in data.iter().take(3) {
             let _ = writeln!(
                 out,
-                "  first {:<10} @{} size {} entropy {:.2} head {}",
-                chunk_name(c.kind),
-                c.offset,
-                c.size,
+                "  ReplayData @{} times {:?} data {:?} entropy {:.2} head {}",
+                c.offset, c.times, c.data_size, c.entropy, c.head
+            );
+        }
+    }
+    // Checkpoints and events: group names and counts (no ids or metadata).
+    for kind in [2u32, 3] {
+        let mut groups = std::collections::BTreeMap::<String, usize>::new();
+        for c in report.chunks.iter().filter(|c| c.kind == kind) {
+            *groups.entry(c.group.clone().unwrap_or_else(|| "?".into())).or_default() += 1;
+        }
+        if !groups.is_empty() {
+            let _ = writeln!(out, "  {} groups {:?}", chunk_name(kind), groups);
+        }
+        if let Some(c) = report.chunks.iter().find(|c| c.kind == kind) {
+            let _ = writeln!(
+                out,
+                "  first {} times {:?} data {:?} entropy {:.2} head {}",
+                chunk_name(kind),
+                c.times,
+                c.data_size,
                 c.entropy,
                 c.head
             );
@@ -399,6 +507,54 @@ mod tests {
         assert_eq!(kinds, vec![(0, 10), (1, 300), (3, 5)]);
         assert!(r.note.is_none());
         assert!(r.chunks[1].entropy < 0.01);
+    }
+
+    #[test]
+    fn reads_the_riot_layout_seen_in_real_files() {
+        // Header bytes as reported from a real VALORANT .vrf (version 7,
+        // one custom version, 29 min, fixed-size UTF-16 name), followed by
+        // the remaining fields and one ReplayData chunk.
+        let mut v = Vec::new();
+        let put = |v: &mut Vec<u8>, x: u32| v.extend_from_slice(&x.to_le_bytes());
+        put(&mut v, RIOT_REPLAY_MAGIC);
+        put(&mut v, 7);
+        put(&mut v, 1);
+        v.extend_from_slice(&[0x3e; 16]);
+        put(&mut v, 7);
+        put(&mut v, 1_759_195);
+        put(&mut v, 0x1CA7_EFE6);
+        put(&mut v, 5_760_300);
+        put(&mut v, (-257i32) as u32);
+        let mut name: Vec<u16> = "99436d8f-0820-41f4-ad79-c6874183701b".encode_utf16().collect();
+        name.resize(257, 0);
+        for u in name {
+            v.extend_from_slice(&u.to_le_bytes());
+        }
+        put(&mut v, 0); // live
+        v.extend_from_slice(&0i64.to_le_bytes());
+        put(&mut v, 1); // compressed
+        put(&mut v, 0); // encrypted
+        put(&mut v, 0); // key
+        put(&mut v, 1); // ReplayData
+        put(&mut v, 12 + 20);
+        put(&mut v, 0);
+        put(&mut v, 5000);
+        put(&mut v, 20);
+        v.extend_from_slice(&[9u8; 20]);
+        let r = inspect(&mut std::io::Cursor::new(v)).unwrap();
+        let h = r.header.unwrap();
+        assert_eq!(
+            (h.magic, h.file_version, h.custom_versions.clone()),
+            (RIOT_REPLAY_MAGIC, 7, vec![7])
+        );
+        assert_eq!(h.length_ms / 60_000, 29);
+        assert_eq!(h.changelist, 5_760_300);
+        assert_eq!(h.friendly_name, "99436d8f-0820-41f4-ad79-c6874183701b");
+        assert_eq!(h.compressed, Some(true));
+        assert_eq!(r.chunks.len(), 1);
+        assert_eq!(r.chunks[0].times, Some((0, 5000)));
+        assert_eq!(r.chunks[0].data_size, Some(20));
+        assert!(r.note.is_none(), "{:?}", r.note);
     }
 
     #[test]
