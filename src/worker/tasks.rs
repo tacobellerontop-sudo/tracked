@@ -270,11 +270,28 @@ pub async fn load_replay(ctx: &Arc<Ctx>, id: &str) -> Result<Arc<crate::replay::
     let mut replay = crate::replay::from_raw(&raw);
     // Looking for VALORANT's downloaded replay reads the local Demos folder.
     let match_id = id.to_string();
-    replay.replay_file = tokio::task::spawn_blocking(move || crate::replay::vrf::find_for_match(&match_id))
-        .await
-        .ok()
-        .flatten()
-        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()));
+    // Its abilities and dropped weapons are read in the background too.
+    let file = tokio::task::spawn_blocking(move || {
+        let path = crate::replay::vrf::find_for_match(&match_id)?;
+        let stream = crate::replay::vrf_spawns::read(&path)
+            .map_err(|e| tracing::warn!(error = %e, "couldn't read the replay file"))
+            .ok();
+        Some((path, stream))
+    })
+    .await
+    .ok()
+    .flatten();
+    if let Some((path, stream)) = file {
+        replay.replay_file = path.file_name().map(|n| n.to_string_lossy().into_owned());
+        if let Some(s) = stream {
+            tracing::debug!(
+                spawns = s.spawns.len(),
+                rounds = s.round_starts.len(),
+                "replay file read"
+            );
+            crate::replay::vrf_spawns::attach(&mut replay, &s);
+        }
+    }
     if let Some(r) = replay.rounds.first() {
         tracing::debug!(
             match_id = id,

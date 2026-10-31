@@ -169,6 +169,8 @@ other. `tests/social_e2e.rs` runs the real worker against it in-process.
 | `replay/fetch.rs` | match-details serde models (valapidocs field names) + fetch |
 | `replay/timeline.rs` | continuous playback: per-player tracks, curve between recorded positions, poses at any time |
 | `replay/calibrate.rs` | `MapCal`, `world_to_norm` (note the x/y swap), facing vectors |
+| `replay/vrf.rs` | downloaded `.vrf` replays: container, chunks, Oodle blocks, structure report |
+| `replay/vrf_spawns.rs` | `.vrf` network stream: frames → packets → bunches → actor spawns (abilities, drops) and `attach` to rounds; payloads are encrypted and skipped |
 | `riot/chat.rs` | local chat API: friends, requests, conversations, history, send; friend status decode |
 | `riot/names.rs` | batched PUUID → Riot ID with cache |
 | `riot/match_stats.rs` | raw match → `MatchDetail` with derived stats (KAST, trades, clutches…) |

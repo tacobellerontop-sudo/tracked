@@ -28,6 +28,10 @@ pub const SELF_PUUID: &str = "00000000-0000-4000-8000-000000000000";
 const AGENTS: &[&str] = &[
     "Jett", "Sova", "Omen", "Killjoy", "Raze", "Skye", "Viper", "Reyna", "Cypher", "Breach",
 ];
+/// Riot's internal agent names, as replay files use them.
+const AGENT_DEV_NAMES: &[&str] = &[
+    "Wushu", "Hunter", "Wraith", "Killjoy", "Clay", "Guide", "Pandemic", "Vampire", "Gumshoe", "Breach",
+];
 const MAPS: &[&str] = &["Ascent", "Bind", "Haven", "Split", "Lotus", "Sunset", "Icebox", "Pearl"];
 const NAMES: &[&str] = &[
     // A few non-Latin names so the script fallback fonts get exercised.
@@ -87,6 +91,7 @@ pub fn catalog() -> Catalog {
             Agent {
                 name: a.to_string(),
                 icon: String::new(),
+                dev_name: AGENT_DEV_NAMES[i].to_string(),
             },
         );
     }
@@ -142,7 +147,71 @@ pub fn synthetic_match(seed: u64) -> MatchDetail {
 /// The same match as a 2D replay, through the real replay parser.
 pub fn synthetic_replay(seed: u64) -> crate::replay::MatchReplay {
     let raw: crate::replay::fetch::MatchDetailsRaw = serde_json::from_value(synthetic_raw(seed)).expect("demo replay");
-    crate::replay::from_raw(&raw)
+    let mut m = crate::replay::from_raw(&raw);
+    demo_items(&mut m);
+    m
+}
+
+/// What a downloaded replay file would add: utility set up before the
+/// first fight and a weapon left at every death spot.
+fn demo_items(m: &mut crate::replay::MatchReplay) {
+    use crate::replay::{ItemKind, Loc, MapItem};
+    let utility = [
+        ("Wraith", "Dark Cover"),
+        ("Killjoy", "Turret"),
+        ("Pandemic", "Toxic Screen"),
+        ("Gumshoe", "Cyber Cage"),
+    ];
+    let agents: Vec<(String, usize)> = m
+        .players
+        .iter()
+        .filter_map(|p| Some((p.puuid.clone(), (0..AGENTS.len()).find(|i| agent_id(*i) == p.agent)?)))
+        .collect();
+    m.replay_file = Some("demo.vrf".into());
+    for round in &mut m.rounds {
+        let Some(first) = round.frames.first() else { continue };
+        let t0 = (first.t_ms as f32 - 6000.0).max(500.0);
+        let mut items = Vec::new();
+        for (k, pl) in first.positions.iter().filter(|p| p.alive).enumerate() {
+            let Some((_, a)) = agents.iter().find(|(id, _)| *id == pl.puuid) else {
+                continue;
+            };
+            let Some((_, name)) = utility.iter().find(|(dev, _)| *dev == AGENT_DEV_NAMES[*a]) else {
+                continue;
+            };
+            items.push(MapItem {
+                kind: ItemKind::Ability {
+                    agent: AGENT_DEV_NAMES[*a].into(),
+                    name: (*name).into(),
+                },
+                pos: Loc {
+                    x: pl.pos.x + 900.0,
+                    y: pl.pos.y + (k as f32 - 2.0) * 250.0,
+                },
+                t: t0 + k as f32 * 700.0,
+                end: Some(t0 + 15000.0 + k as f32 * 700.0),
+            });
+        }
+        for f in &round.frames {
+            let Some(kill) = &f.kill else { continue };
+            if let Some(v) = f.positions.iter().find(|p| p.puuid == kill.victim && !p.alive) {
+                items.push(MapItem {
+                    kind: ItemKind::DroppedWeapon,
+                    pos: Loc {
+                        x: v.pos.x + 120.0,
+                        y: v.pos.y - 80.0,
+                    },
+                    t: f.t_ms as f32 + 300.0,
+                    end: None,
+                });
+            }
+        }
+        items.sort_by(|a, b| a.t.total_cmp(&b.t));
+        if let Some(first) = items.first() {
+            round.timeline.start = round.timeline.start.min((first.t - 1000.0).max(0.0));
+        }
+        round.items = items;
+    }
 }
 
 /// Demo match ids are `d<seed:07>-0000-4000-8000-000000000000`.

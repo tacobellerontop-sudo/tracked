@@ -143,7 +143,7 @@ The replay is rebuilt from the match-details data that every tracker uses
 each kill, plant and defuse**. Playback is smooth: between those moments each player glides
 along a curve through their recorded positions. That in-between movement is an estimate
 for viewing, not tracked data; at every kill, plant and defuse the positions are exact. It
-is not VALORANT's own replay files (third parties can't access those).
+doesn't come from VALORANT's own replay files (their movement data is encrypted).
 Map images and calibration come from valorant-api.com; match data is cached on disk after
 the first view. Deathmatch-style modes have no replay. To check it against your own matches:
 
@@ -152,11 +152,14 @@ riot-probe --replay            # your latest match: prints round 1's kills, writ
 riot-probe --replay <matchId>  # a specific match
 ```
 
-**Downloaded replays (work in progress).** VALORANT can download a match's replay to your PC
-(`%LOCALAPPDATA%\VALORANT\Saved\Demos`, `.vrf`). Those files hold real movement, but their
-format is undocumented. Tracked notices when a match has one, and **Settings → Replay files →
-Check replay files** (or `riot-probe --vrf`) reports how the files are laid out, so a parser can
-be built. It only reads the files on disk, never the game. Until then, playback stays smoothed.
+**Downloaded replays.** VALORANT can download a match's replay to your PC
+(`%LOCALAPPDATA%\VALORANT\Saved\Demos`, `.vrf`). When the match you open has one, Tracked
+reads it and adds **every ability object** (smokes, walls, traps, turrets, mollies, …) and
+**every dropped weapon** to the 2D replay, at their exact spot, from the moment they appear
+until they're destroyed or picked up. Player movement in those files is encrypted, so players
+still move the smoothed way. It only reads the files on disk, never the game.
+**Settings → Replay files → Check replay files** (or `riot-probe --vrf`) reports how the files
+are laid out.
 
 `replay-check.png` is the real minimap with valorant-api's named callouts (white), every
 plant in the match (yellow) and the players at round 1's first kill. If the white dots sit in
