@@ -14,6 +14,8 @@ const BASE: &str = "https://valorant-api.com";
 pub struct Agent {
     pub name: String,
     pub icon: String,
+    /// Riot's internal name (e.g. "Smonk"), as replay files use it.
+    pub dev_name: String,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -64,6 +66,14 @@ pub struct Catalog {
 impl Catalog {
     pub fn agent(&self, id: &str) -> Option<&Agent> {
         self.agents.get(&id.to_ascii_lowercase())
+    }
+
+    /// Agent UUID (lowercase) and info by Riot's internal name.
+    pub fn agent_by_dev_name(&self, dev: &str) -> Option<(&str, &Agent)> {
+        self.agents
+            .iter()
+            .find(|(_, a)| a.dev_name.eq_ignore_ascii_case(dev))
+            .map(|(id, a)| (id.as_str(), a))
     }
 
     pub fn map(&self, id: &str) -> Option<&MapInfo> {
@@ -144,6 +154,7 @@ pub async fn fetch_catalog(http: &reqwest::Client) -> Result<Catalog, ApiError> 
             Agent {
                 name: str_of(&a, "displayName"),
                 icon: str_of(&a, "displayIconSmall"),
+                dev_name: str_of(&a, "developerName"),
             },
         );
     }

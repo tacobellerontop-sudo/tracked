@@ -236,8 +236,7 @@ fn region_name(code: &str) -> &'static str {
     }
 }
 
-/// Inspect VALORANT's downloaded replay files (structure only), so exact
-/// movement can be decoded from them later.
+/// Inspect VALORANT's downloaded replay files (structure only).
 fn replay_files(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
     ui.label(egui::RichText::new("Replay files").strong());
     ui.weak(
