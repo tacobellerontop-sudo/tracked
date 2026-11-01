@@ -15,6 +15,7 @@ pub mod settings;
 pub mod social;
 pub mod theme;
 pub mod titlebar;
+pub mod weapons;
 pub mod widgets;
 
 use egui::{pos2, vec2, Align, Align2, Color32, CornerRadius, FontId, Layout, Rect, RichText, Sense, Shape, Stroke};
@@ -39,10 +40,11 @@ const NAV: &[(Screen, &str, Icon, egui::Key)] = &[
     (Screen::Matches, "Matches", Icon::Matches, egui::Key::Num3),
     (Screen::Replays, "Replays", Icon::Map, egui::Key::Num4),
     (Screen::Agents, "Agents", Icon::Agents, egui::Key::Num5),
-    (Screen::Lookup, "Players", Icon::Search, egui::Key::Num6),
-    (Screen::Crosshairs, "Crosshairs", Icon::Crosshair, egui::Key::Num7),
-    (Screen::Social, "Social", Icon::Social, egui::Key::Num8),
-    (Screen::Settings, "Settings", Icon::Settings, egui::Key::Num9),
+    (Screen::Weapons, "Weapons", Icon::Target, egui::Key::Num6),
+    (Screen::Lookup, "Players", Icon::Search, egui::Key::Num7),
+    (Screen::Crosshairs, "Crosshairs", Icon::Crosshair, egui::Key::Num8),
+    (Screen::Social, "Social", Icon::Social, egui::Key::Num9),
+    (Screen::Settings, "Settings", Icon::Settings, egui::Key::Num0),
 ];
 
 const SIDEBAR_W: f32 = 210.0;
@@ -129,6 +131,7 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState, intents: &IntentTx) {
                     Screen::Matches => pages::matches(ui, state, intents),
                     Screen::Replays => pages::replays(ui, state, intents),
                     Screen::Agents => pages::agents(ui, state),
+                    Screen::Weapons => weapons::ui(ui, state),
                     Screen::Live => theme::card(ui, None, |ui| live::ui(ui, state, intents)),
                     Screen::Lookup => theme::card(ui, None, |ui| lookup::ui(ui, state, intents)),
                     Screen::Crosshairs => theme::card(ui, None, |ui| crosshairs::ui(ui, state, intents)),
@@ -213,8 +216,12 @@ fn sidebar(ui: &mut egui::Ui, state: &mut AppState, visible: &dyn Fn(&Screen) ->
         let y = theme::glide(ui.ctx(), egui::Id::new("nav-highlight"), r.top(), 0.22);
         let rect = Rect::from_min_size(pos2(r.left(), y), r.size());
         let bar = Rect::from_min_size(rect.left_top() + vec2(0.0, 11.0), vec2(3.0, rect.height() - 22.0));
+        // Accent-tinted pill with a glowing edge bar.
+        let glow = bar.expand2(vec2(3.0, 2.0));
         let shapes = vec![
             Shape::rect_filled(rect, CornerRadius::same(12), p.selected),
+            Shape::rect_filled(rect, CornerRadius::same(12), p.accent.gamma_multiply(0.10)),
+            Shape::rect_filled(glow, CornerRadius::same(4), p.accent.gamma_multiply(0.25)),
             Shape::rect_filled(bar, CornerRadius::same(2), p.accent),
         ];
         ui.painter().set(highlight, Shape::Vec(shapes));
@@ -367,6 +374,7 @@ fn top_bar(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
                 Screen::Live => "Live",
                 Screen::Matches => "Matches",
                 Screen::Agents => "Agents",
+                Screen::Weapons => "Weapons",
                 Screen::Lookup => "Players",
                 Screen::Crosshairs => "Crosshairs",
                 Screen::Social => "Social",
@@ -395,6 +403,10 @@ fn run_search(state: &mut AppState, intents: &IntentTx) {
         intents.send(Intent::LookupPlayer { name, tag });
     } else if state.catalog.agents.values().any(|a| a.name.eq_ignore_ascii_case(&q)) {
         state.screen = Screen::Agents;
+    } else if crate::content::weapons::is_weapon_name(&q)
+        || state.catalog.weapons.values().any(|w| w.name.eq_ignore_ascii_case(&q))
+    {
+        state.screen = Screen::Weapons;
     } else {
         state.screen = Screen::Matches;
     }

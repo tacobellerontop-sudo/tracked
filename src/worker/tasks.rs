@@ -298,7 +298,10 @@ pub async fn load_match(ctx: &Arc<Ctx>, id: &str) -> Result<Arc<MatchDetail>, Ap
     let mut detail: Option<MatchDetail> = None;
     if let Some(path) = &disk {
         if let Ok(bytes) = tokio::fs::read(path).await {
-            detail = serde_json::from_slice(&bytes).ok();
+            // Caches from older versions lack newer stats: fetch those again.
+            detail = serde_json::from_slice::<MatchDetail>(&bytes)
+                .ok()
+                .filter(|d| d.schema >= MatchDetail::SCHEMA);
         }
     }
     let detail = match detail {

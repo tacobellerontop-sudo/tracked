@@ -33,6 +33,8 @@ pub struct Weapon {
     pub name: String,
     /// Kill-feed silhouette.
     pub icon: String,
+    /// Side-on artwork, for the Weapons page.
+    pub display_icon: String,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -79,6 +81,15 @@ impl Catalog {
 
     pub fn weapon(&self, id: &str) -> Option<&Weapon> {
         self.weapons.get(&id.to_ascii_lowercase())
+    }
+
+    /// Display name for a weapon id: the catalog's, then the built-in table's.
+    pub fn weapon_name(&self, id: &str) -> String {
+        self.weapon(id)
+            .map(|w| w.name.clone())
+            .filter(|n| !n.is_empty())
+            .or_else(|| super::weapons::known_name(id).map(str::to_string))
+            .unwrap_or_else(|| "Unknown weapon".into())
     }
 
     pub fn tier(&self, tier: u32) -> Option<&Tier> {
@@ -164,6 +175,7 @@ pub async fn fetch_catalog(http: &reqwest::Client) -> Result<Catalog, ApiError> 
             Weapon {
                 name: str_of(&w, "displayName"),
                 icon: str_of(&w, "killStreamIcon"),
+                display_icon: str_of(&w, "displayIcon"),
             },
         );
     }

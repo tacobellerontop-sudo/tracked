@@ -118,7 +118,7 @@ pub fn catalog() -> Catalog {
             id.to_string(),
             crate::content::valorant_api::Weapon {
                 name: name.to_string(),
-                icon: String::new(),
+                ..Default::default()
             },
         );
     }
@@ -156,7 +156,27 @@ const DEMO_WEAPONS: &[(&str, &str)] = &[
     ("a03b24d3-4319-996d-0f8c-94bbfba1dfc7", "Operator"),
     ("e336c6b8-418d-9340-d77f-7a9e4cfe0702", "Sheriff"),
     ("462080d1-4035-2937-7c09-27aa2a5c27a7", "Spectre"),
+    ("29a0cfab-485b-f5d5-779a-b59f85e204a8", "Classic"),
+    ("ae3de142-4d85-2547-dd26-4e90bed35cf7", "Bulldog"),
+    ("2f59173c-4bed-b6c3-2191-dea9b58be9c7", "Melee"),
 ];
+
+/// What player `i` carries in round `n`: pistols first, then each player's
+/// favourite gun, with the odd eco or alternative.
+fn demo_loadout(rng: &mut Lcg, i: usize, n: u32) -> usize {
+    if n == 0 || n == 12 {
+        return if rng.next(4) == 0 { 3 } else { 5 };
+    }
+    if n == 1 || n == 13 {
+        return [4, 6, 3][rng.next(3) as usize];
+    }
+    let favourite = [0, 1, 0, 2, 1, 0, 1, 2, 0, 1][i % 10];
+    match rng.next(10) {
+        0 => 3,
+        1 => 4,
+        _ => favourite,
+    }
+}
 
 /// Raw match-details JSON (valapidocs shape), including positions at each
 /// kill, plant and defuse from a crude movement simulation.
@@ -195,6 +215,7 @@ fn synthetic_raw(seed: u64) -> serde_json::Value {
             );
         }
         let mut alive: Vec<Vec<usize>> = vec![(0..5).collect(), (5..10).collect()];
+        let loadout: Vec<usize> = (0..10).map(|i| demo_loadout(&mut rng, i, n)).collect();
         let mut stats: Vec<serde_json::Value> = Vec::new();
         let mut t: u64 = 5000;
         let mut plant: Option<(u64, usize, serde_json::Value)> = None;
@@ -266,11 +287,18 @@ fn synthetic_raw(seed: u64) -> serde_json::Value {
             kda[killer].0 += 1;
             kda[victim].1 += 1;
             score[killer] += 150 + 50 * hs;
-            let finishing = if rng.next(12) == 0 {
-                json!({ "damageType": "Ability", "damageItem": "Ultimate", "isSecondaryFireMode": false })
-            } else {
-                let w = DEMO_WEAPONS[rng.next(DEMO_WEAPONS.len() as u64) as usize].0;
-                json!({ "damageType": "Weapon", "damageItem": w.to_uppercase(), "isSecondaryFireMode": false })
+            let finishing = match rng.next(80) {
+                0..=5 => json!({ "damageType": "Ability", "damageItem": "Ultimate", "isSecondaryFireMode": false }),
+                6 => json!({ "damageType": "Melee", "damageItem": "", "isSecondaryFireMode": false }),
+                // Mostly the gun they bought; sometimes a sidearm or a picked-up gun.
+                r => {
+                    let w = if r < 68 {
+                        loadout[killer]
+                    } else {
+                        rng.next(DEMO_WEAPONS.len() as u64 - 1) as usize
+                    };
+                    json!({ "damageType": "Weapon", "damageItem": DEMO_WEAPONS[w].0.to_uppercase(), "isSecondaryFireMode": false })
+                }
             };
             stats.push(json!({ "subject": puuid(killer),
                 "kills": [{ "gameTime": n as u64 * 100_000 + t, "roundTime": t, "killer": puuid(killer), "victim": puuid(victim),
@@ -283,6 +311,10 @@ fn synthetic_raw(seed: u64) -> serde_json::Value {
             red += 1
         } else {
             blue += 1
+        }
+        for (i, &w) in loadout.iter().enumerate() {
+            stats.push(json!({ "subject": puuid(i), "kills": [], "damage": [],
+                "economy": { "weapon": DEMO_WEAPONS[w].0, "armor": "", "loadoutValue": 3900, "spent": 2900, "remaining": 1000 } }));
         }
         let mut round = json!({ "roundNum": n, "winningTeam": teams[winner],
             "winningTeamRole": if winner == attacker { "Attacker" } else { "Defender" },
