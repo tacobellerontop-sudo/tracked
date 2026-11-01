@@ -12,6 +12,11 @@ A lightweight, native desktop companion for VALORANT, written in Rust with
 - **Matches / Agents:** full match history and per-agent stats (filterable from the search bar).
   Each match shows a **performance score** (0–1000, 500 = the lobby average) that rates you
   against the other nine players on ACS, KAST, ADR, K/D, entry duels and headshot %
+- **Weapons:** kills, headshot %, damage per round and kills per round for every gun you've used,
+  your signature weapon, where your kills come from, and highlights (sharpest aim, hardest hitter).
+  Kills are exact; hits are attributed (hits on a player go to the gun that killed them, the rest
+  to the gun you bought that round), since Riot doesn't record the gun behind each hit.
+  Each match screen also breaks down your weapons for that game
 - **Match detail:** both scoreboards (ACS, K/D, ADR, HS%, KAST, first kills/deaths,
   multi-kills, plants/defuses) and a round-by-round strip
 - **Lookup:** another player's rank and recent matches
@@ -33,7 +38,7 @@ A lightweight, native desktop companion for VALORANT, written in Rust with
 ![Home dashboard](docs/screenshots/home.png)
 
 More: [home, lower half](docs/screenshots/home-bottom.png) · [dark mode](docs/screenshots/home-dark.png) ·
-[agents](docs/screenshots/agents.png) · [live lobby](docs/screenshots/live.png) ·
+[agents](docs/screenshots/agents.png) · [weapons](docs/screenshots/weapons.png) · [live lobby](docs/screenshots/live.png) ·
 [match detail](docs/screenshots/match-detail.png) · [startup check](docs/screenshots/startup.png) ·
 [friends & whispers](docs/screenshots/friends.png) · [2D replay](docs/screenshots/replay.png) · [Replays tab](docs/screenshots/replays.png).
 Screenshots are from `--demo` mode with synthetic data and no artwork; in normal use your

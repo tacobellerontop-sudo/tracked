@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum Theme {
-    #[default]
     Light,
+    #[default]
     Dark,
 }
 
@@ -80,7 +80,7 @@ impl Default for Settings {
         Self {
             window_size: [1440.0, 900.0],
             window_maximized: false,
-            theme: Theme::Light,
+            theme: Theme::Dark,
             poll_interval_secs: 5,
             crosshairs: Vec::new(),
             backend_url: None,

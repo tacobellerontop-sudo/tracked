@@ -169,6 +169,19 @@ pub struct RawRoundPlayer {
     pub kills: Vec<RawKill>,
     pub damage: Vec<RawDamage>,
     pub score: i32,
+    pub economy: Option<RawEconomy>,
+}
+
+/// What a player bought / carried into a round.
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct RawEconomy {
+    pub loadout_value: u32,
+    /// Weapon UUID of the gun held at the start of the round ("" if none).
+    pub weapon: String,
+    pub armor: String,
+    pub remaining: u32,
+    pub spent: u32,
 }
 
 #[derive(Debug, Default, Clone, Deserialize)]
@@ -178,6 +191,17 @@ pub struct RawKill {
     pub killer: String,
     pub victim: String,
     pub assistants: Vec<String>,
+    pub finishing_damage: RawFinishingDamage,
+}
+
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct RawFinishingDamage {
+    /// "Weapon" | "Ability" | "Bomb" | "Fall" | "Melee" | "".
+    pub damage_type: String,
+    /// Weapon UUID, or "Ultimate" / "Ability1" / "GrenadeAbility" / "".
+    pub damage_item: String,
+    pub is_secondary_fire_mode: bool,
 }
 
 #[derive(Debug, Default, Clone, Deserialize)]
@@ -234,6 +258,52 @@ pub struct PlayerStats {
     pub attack_rounds_won: u32,
     pub defence_rounds_won: u32,
     pub rounds_played: u32,
+    /// Per-weapon breakdown, most kills first. See [`WeaponStat`].
+    #[serde(default)]
+    pub weapons: Vec<WeaponStat>,
+}
+
+/// One player's numbers with one weapon in one match.
+///
+/// Kills are exact (Riot records the finishing weapon of every kill). Riot
+/// doesn't record which gun each *hit* came from, so hits and damage are
+/// attributed: damage to a player you killed goes to the gun that killed them;
+/// other damage goes to the gun you carried into that round.
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct WeaponStat {
+    /// Lowercase weapon UUID, or [`crate::content::weapons::ABILITIES`].
+    pub weapon_id: String,
+    pub kills: u32,
+    /// Kills where every hit on the victim that round was a headshot.
+    pub headshot_kills: u32,
+    pub headshots: u32,
+    pub bodyshots: u32,
+    pub legshots: u32,
+    pub damage: u32,
+    /// Rounds this was the gun carried into the round.
+    pub rounds: u32,
+}
+
+impl WeaponStat {
+    pub fn hits(&self) -> u32 {
+        self.headshots + self.bodyshots + self.legshots
+    }
+
+    /// Headshot percentage over attributed hits (0-100).
+    pub fn hs_pct(&self) -> f32 {
+        100.0 * self.headshots as f32 / self.hits().max(1) as f32
+    }
+
+    pub fn add(&mut self, o: &WeaponStat) {
+        self.kills += o.kills;
+        self.headshot_kills += o.headshot_kills;
+        self.headshots += o.headshots;
+        self.bodyshots += o.bodyshots;
+        self.legshots += o.legshots;
+        self.damage += o.damage;
+        self.rounds += o.rounds;
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
@@ -283,6 +353,9 @@ pub struct RoundPlayerStat {
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MatchDetail {
+    /// [`MatchDetail::SCHEMA`] when normalized; older on-disk caches read as 0.
+    #[serde(default)]
+    pub schema: u32,
     pub info: MatchInfo,
     pub players: Vec<PlayerMatch>,
     pub teams: Vec<TeamResult>,
@@ -290,6 +363,10 @@ pub struct MatchDetail {
 }
 
 impl MatchDetail {
+    /// Bumped when normalization learns new stats, so cached matches are
+    /// re-fetched. 1: per-weapon stats.
+    pub const SCHEMA: u32 = 1;
+
     pub fn player(&self, puuid: &str) -> Option<&PlayerMatch> {
         self.players.iter().find(|p| p.puuid == puuid)
     }

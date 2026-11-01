@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::ipc::RrPoint;
-use crate::riot::models::{MatchDetail, Outcome};
+use crate::riot::models::{MatchDetail, Outcome, WeaponStat};
 
 /// Totals over a set of matches, for one player.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -118,6 +118,61 @@ pub fn agents(puuid: &str, matches: &[&MatchDetail]) -> Vec<AgentStats> {
             .matches
             .cmp(&a.totals.matches)
             .then(b.totals.kd().total_cmp(&a.totals.kd()))
+    });
+    v
+}
+
+/// One weapon's totals over a set of matches, for one player.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct WeaponTotals {
+    pub stat: WeaponStat,
+    /// Matches with at least one kill, hit or round with this weapon.
+    pub matches: u32,
+    /// Share of all the player's kills (0-100).
+    pub kill_share: f32,
+}
+
+impl WeaponTotals {
+    /// Damage per round carried. `None` when we never saw it carried.
+    pub fn damage_per_round(&self) -> Option<f32> {
+        (self.stat.rounds > 0).then(|| self.stat.damage as f32 / self.stat.rounds as f32)
+    }
+
+    /// Kills per round carried.
+    pub fn kills_per_round(&self) -> Option<f32> {
+        (self.stat.rounds > 0).then(|| self.stat.kills as f32 / self.stat.rounds as f32)
+    }
+}
+
+/// Per-weapon totals for `puuid`, most kills first.
+pub fn weapons(puuid: &str, matches: &[&MatchDetail]) -> Vec<WeaponTotals> {
+    let mut map: HashMap<String, WeaponTotals> = HashMap::new();
+    let mut all_kills = 0u32;
+    for m in matches {
+        let Some(me) = m.player(puuid) else { continue };
+        for w in &me.stats.weapons {
+            let t = map.entry(w.weapon_id.clone()).or_insert_with(|| WeaponTotals {
+                stat: WeaponStat {
+                    weapon_id: w.weapon_id.clone(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            });
+            t.stat.add(w);
+            t.matches += 1;
+            all_kills += w.kills;
+        }
+    }
+    let mut v: Vec<WeaponTotals> = map.into_values().collect();
+    for t in &mut v {
+        t.kill_share = 100.0 * t.stat.kills as f32 / all_kills.max(1) as f32;
+    }
+    v.sort_by(|a, b| {
+        b.stat
+            .kills
+            .cmp(&a.stat.kills)
+            .then(b.stat.damage.cmp(&a.stat.damage))
+            .then(a.stat.weapon_id.cmp(&b.stat.weapon_id))
     });
     v
 }
@@ -325,6 +380,7 @@ mod tests {
             ..Default::default()
         };
         MatchDetail {
+            schema: MatchDetail::SCHEMA,
             info: MatchInfo {
                 started_at_unix: t,
                 ..Default::default()

@@ -65,6 +65,10 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
     ui.add_space(6.0);
     round_strip(ui, &d, my_team.as_deref());
     ui.add_space(8.0);
+    if let Some(mine) = me.as_deref().and_then(|p| d.player(p)) {
+        super::weapons::match_breakdown(ui, &cat, &mine.stats.weapons);
+        ui.add_space(8.0);
+    }
 
     let mut teams: Vec<&str> = d.teams.iter().map(|t| t.team_id.as_str()).collect();
     if let Some(mine) = &my_team {
