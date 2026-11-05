@@ -28,6 +28,10 @@ pub enum Screen {
     /// Pick a match to watch as a 2D replay.
     Replays,
     Agents,
+    /// Your daily store, bundles, night market and wallet.
+    Store,
+    /// Your equipped skins, account level and collection.
+    Loadout,
     Lookup,
     Crosshairs,
     Social,
@@ -254,6 +258,32 @@ impl CrosshairEditor {
     }
 }
 
+/// The Store and Loadout screens' data. `None` = not loaded yet.
+#[derive(Default)]
+pub struct ShopState {
+    pub store: Option<Result<Arc<crate::shop::StoreView>, String>>,
+    pub store_loading: bool,
+    pub loadout: Option<Result<Arc<crate::shop::LoadoutView>, String>>,
+    pub loadout_loading: bool,
+}
+
+impl ShopState {
+    /// Ask for the store (no-op while a request is in flight).
+    pub fn request_store(&mut self, intents: &IntentTx) {
+        if !self.store_loading {
+            self.store_loading = true;
+            intents.send(Intent::RefreshStore);
+        }
+    }
+
+    pub fn request_loadout(&mut self, intents: &IntentTx) {
+        if !self.loadout_loading {
+            self.loadout_loading = true;
+            intents.send(Intent::RefreshLoadout);
+        }
+    }
+}
+
 /// A transient error message shown at the bottom of the window.
 pub struct Toast {
     pub text: String,
@@ -291,6 +321,7 @@ pub struct AppState {
     pub search: String,
     pub social: SocialState,
     pub riot_social: RiotSocial,
+    pub shop: ShopState,
     pub toasts: Vec<Toast>,
     pub pending_toasts: Vec<String>,
     pub settings: Settings,
@@ -340,6 +371,7 @@ impl AppState {
             search: String::new(),
             social: SocialState::new(settings.backend_url.clone()),
             riot_social: RiotSocial::default(),
+            shop: ShopState::default(),
             toasts: Vec::new(),
             pending_toasts: Vec::new(),
             settings,
@@ -357,6 +389,10 @@ impl AppState {
             Update::ClientStatus(s) => {
                 if !matches!(s, ClientStatus::Authed { .. }) {
                     self.game = None;
+                }
+                // Signed in again (maybe as someone else): reload on next view.
+                if matches!(s, ClientStatus::Authed { .. }) && !matches!(self.status, ClientStatus::Authed { .. }) {
+                    self.shop = ShopState::default();
                 }
                 self.status = s;
             }
@@ -389,6 +425,14 @@ impl AppState {
                 }
             }
             Update::Error(e) => self.pending_toasts.push(e.0),
+            Update::Store(r) => {
+                self.shop.store_loading = false;
+                self.shop.store = Some(r.map_err(|e| e.0));
+            }
+            Update::Loadout(r) => {
+                self.shop.loadout_loading = false;
+                self.shop.loadout = Some(r.map_err(|e| e.0));
+            }
             Update::LiveMatch(m) => self.live = m,
             Update::Names(names) => self.names.extend(names),
             Update::Probe(p, r) => {

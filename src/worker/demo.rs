@@ -552,6 +552,12 @@ pub async fn run(mut intents: IntentRx, ctx: Arc<Ctx>) {
                 };
                 ctx.sink.send(Update::Replay { match_id: id, result });
             }
+            Intent::RefreshStore => ctx.sink.send(Update::Store(Ok(Arc::new(super::shop::demo::store(
+                chrono::Utc::now().timestamp(),
+            ))))),
+            Intent::RefreshLoadout => ctx.sink.send(Update::Loadout(Ok(Arc::new(super::shop::demo::loadout(
+                chrono::Utc::now().timestamp(),
+            ))))),
             Intent::RiotSocialRefresh => social::refresh(&ctx),
             Intent::RiotChatOpen(cid) => social::open(&ctx, &cid),
             Intent::RiotChatSend { cid, text } => social::send(&ctx, cid, text),

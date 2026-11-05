@@ -10,6 +10,7 @@
 
 pub mod demo;
 pub mod friends;
+pub mod shop;
 pub mod social;
 pub mod tasks;
 
@@ -141,7 +142,8 @@ pub async fn run(mut intents: IntentRx, sink: UpdateSink, settings: Settings) {
 
 impl Supervisor {
     fn handle(&mut self, intent: Intent) {
-        if social::handle(&self.ctx, &intent) || friends::handle(&self.ctx, &intent) {
+        if social::handle(&self.ctx, &intent) || friends::handle(&self.ctx, &intent) || shop::handle(&self.ctx, &intent)
+        {
             return;
         }
         let ctx = self.ctx.clone();
