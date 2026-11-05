@@ -7,12 +7,14 @@ pub mod friends;
 pub mod home;
 pub mod icons;
 pub mod live;
+pub mod loadout;
 pub mod lookup;
 pub mod match_detail;
 pub mod pages;
 pub mod replay;
 pub mod settings;
 pub mod social;
+pub mod store;
 pub mod theme;
 pub mod titlebar;
 pub mod widgets;
@@ -33,16 +35,19 @@ Tracked only uses the Riot Client's local API, Riot's web endpoints with tokens 
 and replay files VALORANT has downloaded to your PC (read from disk). \
 It never reads game memory, never injects into or modifies any Riot process, and never automates gameplay.";
 
-const NAV: &[(Screen, &str, Icon, egui::Key)] = &[
-    (Screen::Home, "Home", Icon::Home, egui::Key::Num1),
-    (Screen::Live, "Live", Icon::Live, egui::Key::Num2),
-    (Screen::Matches, "Matches", Icon::Matches, egui::Key::Num3),
-    (Screen::Replays, "Replays", Icon::Map, egui::Key::Num4),
-    (Screen::Agents, "Agents", Icon::Agents, egui::Key::Num5),
-    (Screen::Lookup, "Players", Icon::Search, egui::Key::Num6),
-    (Screen::Crosshairs, "Crosshairs", Icon::Crosshair, egui::Key::Num7),
-    (Screen::Social, "Social", Icon::Social, egui::Key::Num8),
-    (Screen::Settings, "Settings", Icon::Settings, egui::Key::Num9),
+/// Sidebar items; the key (if any) is the Ctrl+<key> shortcut.
+const NAV: &[(Screen, &str, Icon, Option<egui::Key>)] = &[
+    (Screen::Home, "Home", Icon::Home, Some(egui::Key::Num1)),
+    (Screen::Live, "Live", Icon::Live, Some(egui::Key::Num2)),
+    (Screen::Matches, "Matches", Icon::Matches, Some(egui::Key::Num3)),
+    (Screen::Replays, "Replays", Icon::Map, Some(egui::Key::Num4)),
+    (Screen::Agents, "Agents", Icon::Agents, Some(egui::Key::Num5)),
+    (Screen::Store, "Store", Icon::Store, None),
+    (Screen::Loadout, "Loadout", Icon::Loadout, None),
+    (Screen::Lookup, "Players", Icon::Search, Some(egui::Key::Num6)),
+    (Screen::Crosshairs, "Crosshairs", Icon::Crosshair, Some(egui::Key::Num7)),
+    (Screen::Social, "Social", Icon::Social, Some(egui::Key::Num8)),
+    (Screen::Settings, "Settings", Icon::Settings, Some(egui::Key::Num9)),
 ];
 
 const SIDEBAR_W: f32 = 210.0;
@@ -70,6 +75,7 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState, intents: &IntentTx) {
 
     // Ctrl+<n> switches screens.
     for (screen, _, _, key) in NAV.iter().filter(|n| visible(&n.0)) {
+        let Some(key) = key else { continue };
         if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, *key)) {
             state.screen = *screen;
         }
@@ -129,6 +135,8 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState, intents: &IntentTx) {
                     Screen::Matches => pages::matches(ui, state, intents),
                     Screen::Replays => pages::replays(ui, state, intents),
                     Screen::Agents => pages::agents(ui, state),
+                    Screen::Store => store::ui(ui, state, intents),
+                    Screen::Loadout => loadout::ui(ui, state, intents),
                     Screen::Live => theme::card(ui, None, |ui| live::ui(ui, state, intents)),
                     Screen::Lookup => theme::card(ui, None, |ui| lookup::ui(ui, state, intents)),
                     Screen::Crosshairs => theme::card(ui, None, |ui| crosshairs::ui(ui, state, intents)),
@@ -367,6 +375,8 @@ fn top_bar(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
                 Screen::Live => "Live",
                 Screen::Matches => "Matches",
                 Screen::Agents => "Agents",
+                Screen::Store => "Store",
+                Screen::Loadout => "Loadout",
                 Screen::Lookup => "Players",
                 Screen::Crosshairs => "Crosshairs",
                 Screen::Social => "Social",

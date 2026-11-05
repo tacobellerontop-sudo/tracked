@@ -19,6 +19,12 @@ A lightweight, native desktop companion for VALORANT, written in Rust with
   players move, kills flash in, the spike goes down and gets defused, with a scrubbable timeline,
   0.5×–4× speed, round chips and a live kill feed. Open it from the **Replays** tab, the
   **Replay** button on any match row, or the match screen
+- **Store:** your daily offers with a reset countdown, the Night Market (discounts, and which
+  cards you haven't flipped in the game yet), featured bundles with per-item prices and what you
+  already own, the Kingdom Credits accessory store, and your VP / Radianite / Kingdom Credits
+- **Loadout:** every equipped skin (with variant and rarity), gun buddies, sprays, player card
+  and title; your account level and XP to the next level, when the daily first-win bonus is
+  back, recent XP per match, and how many skins, buddies, sprays, cards and titles you own
 - **Crosshairs:** paste or build a crosshair code, preview it, save presets, copy
 - **Social:** your Riot friends list with live status (in queue, agent select, in a match
   with the score, other Riot games), unread badges and whispers, all through the Riot
@@ -35,7 +41,8 @@ A lightweight, native desktop companion for VALORANT, written in Rust with
 More: [home, lower half](docs/screenshots/home-bottom.png) · [dark mode](docs/screenshots/home-dark.png) ·
 [agents](docs/screenshots/agents.png) · [live lobby](docs/screenshots/live.png) ·
 [match detail](docs/screenshots/match-detail.png) · [startup check](docs/screenshots/startup.png) ·
-[friends & whispers](docs/screenshots/friends.png) · [2D replay](docs/screenshots/replay.png) · [Replays tab](docs/screenshots/replays.png).
+[friends & whispers](docs/screenshots/friends.png) · [store](docs/screenshots/store.png) ·
+[loadout](docs/screenshots/loadout.png) · [2D replay](docs/screenshots/replay.png) · [Replays tab](docs/screenshots/replays.png).
 Screenshots are from `--demo` mode with synthetic data and no artwork; in normal use your
 player card, agent, map and rank art load from valorant-api.com.
 
@@ -161,6 +168,24 @@ be built. It only reads the files on disk, never the game. Until then, playback 
 `replay-check.png` is the real minimap with valorant-api's named callouts (white), every
 plant in the match (yellow) and the players at round 1's first kill. If the white dots sit in
 their areas and the yellow ones on the sites, the coordinate transform is right.
+
+## Store & loadout
+
+Both come from your own account, the same way the VALORANT client gets them: the lockfile gives
+the local API's port and password, the local API hands out your access and entitlement tokens,
+and those are sent only to Riot's own player-data host (`pd.<shard>.a.pvp.net`):
+
+| What | Riot endpoint |
+| --- | --- |
+| Daily offers, bundles, Night Market, accessory store | `POST /store/v3/storefront/{puuid}` (empty body; falls back to `GET /store/v2/…`) |
+| VP / Radianite / Kingdom Credits | `GET /store/v1/wallet/{puuid}` |
+| What you own (skins, buddies, sprays, cards, titles) | `GET /store/v1/entitlements/{puuid}/{itemType}` |
+| Equipped skins, buddies, sprays, card, title | `GET /personalization/v2/players/{puuid}/playerloadout` |
+| Level, XP, first-win bonus, recent XP | `GET /account-xp/v1/players/{puuid}` |
+
+Item names and artwork come from valorant-api.com, loaded the first time you open either screen.
+It's **read-only**: Tracked can't buy anything or change your loadout. The store refreshes
+itself when the daily offers (or anything else) roll over.
 
 ## Riot friends & whispers (built in)
 

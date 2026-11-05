@@ -366,6 +366,10 @@ impl RiotSession {
         self.send(url, |http| http.put(url).json(body)).await
     }
 
+    pub async fn post<B: serde::Serialize, T: DeserializeOwned>(&self, url: &str, body: &B) -> Result<T, ApiError> {
+        self.send(url, |http| http.post(url).json(body)).await
+    }
+
     /// One authenticated call with the §8 recovery rules: 401/403 (or a
     /// `BAD_CLAIMS` 400) → refresh tokens and retry once; a version-looking
     /// 400 → refetch the client version and retry once; 429 → honour
