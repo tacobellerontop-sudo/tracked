@@ -214,8 +214,8 @@ pub fn match_table(
             let s = &m.stats;
             let perf = crate::stats::performance(d, puuid);
             let perf_color = match perf {
-                Some(v) if v >= 600 => p.win,
-                Some(v) if v <= 400 => p.loss,
+                Some(v) if v >= 300 => p.win,
+                Some(v) if v <= 200 => p.loss,
                 _ => p.text,
             };
             let all = [
@@ -302,8 +302,9 @@ pub fn performance_help() -> String {
         .map(|(name, w)| format!("{name} {:.0}%", w * 100.0))
         .collect();
     format!(
-        "Performance (0–1000): how you played compared with the other players in this match. \
-         500 is the lobby average.\nBuilt from {}.",
+        "Performance (0–500, like VALORANT's): how you played compared with the other players in this match. \
+         250 is the lobby average. Riot doesn't share its exact score through the API, so this is \
+         Tracked's estimate and can differ a little from the end-of-game screen.\nBuilt from {}.",
         weights.join(", ")
     )
 }

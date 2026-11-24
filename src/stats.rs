@@ -57,7 +57,7 @@ impl Totals {
         }
     }
 
-    /// Average performance score (0–1000, 500 = lobby average).
+    /// Average performance score (0–500, 250 = lobby average).
     pub fn perf(&self) -> Option<f32> {
         (self.perf_n > 0).then(|| self.perf_sum as f32 / self.perf_n as f32)
     }
@@ -370,10 +370,10 @@ pub fn ago(unix: i64, now: i64) -> String {
 }
 
 /// Performance score: how well someone played relative to the other players
-/// in the same match, on a 0–1000 scale where 500 is the lobby average.
+/// in the same match, on VALORANT's 0–500 scale where 250 is the lobby average.
 ///
 /// Each stat is turned into a z-score against the lobby (capped at ±3) and
-/// the weighted sum is mapped to `500 + 160 × z`: ACS 30%, KAST 20%, ADR 15%,
+/// the weighted sum is mapped to `250 + 80 × z`: ACS 30%, KAST 20%, ADR 15%,
 /// K/D 15%, first kills minus first deaths per round 10%, headshot % 10%.
 pub const PERFORMANCE_WEIGHTS: [(&str, f32); 6] = [
     ("ACS", 0.30),
@@ -384,7 +384,16 @@ pub const PERFORMANCE_WEIGHTS: [(&str, f32); 6] = [
     ("Headshot %", 0.10),
 ];
 
+/// Top of VALORANT's Performance Score scale (Patch 13.06): 0 to 500.
+pub const PERF_MAX: f32 = 500.0;
+/// Where a lobby-average game lands on that scale.
+pub const PERF_AVG: f32 = 250.0;
+/// Points per weighted standard deviation from the lobby average.
+const PERF_SPREAD: f32 = 80.0;
+
 /// Performance score for every player in the match, in `players` order.
+/// Riot doesn't return its own score through the match API, so this is
+/// Tracked's estimate on the same 0–500 scale.
 /// Empty when fewer than two players have rounds to compare.
 pub fn performance_scores(detail: &MatchDetail) -> Vec<(String, u32)> {
     let players: Vec<_> = detail.players.iter().filter(|p| p.stats.rounds_played > 0).collect();
@@ -424,7 +433,7 @@ pub fn performance_scores(detail: &MatchDetail) -> Vec<(String, u32)> {
                     PERFORMANCE_WEIGHTS[i].1 * zi.clamp(-3.0, 3.0)
                 })
                 .sum();
-            let score = (500.0 + 160.0 * z).round().clamp(0.0, 1000.0) as u32;
+            let score = (PERF_AVG + PERF_SPREAD * z).round().clamp(0.0, PERF_MAX) as u32;
             (p.puuid.clone(), score)
         })
         .collect()

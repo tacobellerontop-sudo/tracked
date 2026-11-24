@@ -324,7 +324,7 @@ fn stat_cards(ui: &mut Ui, career: &CareerSummary, o: &Overview) {
         column(ui, cw, |ui| {
             let perf = o.me.perf();
             let sub = match perf {
-                Some(_) => format!("Lobby avg {:.0}", o.lobby.perf().unwrap_or(500.0)),
+                Some(_) => format!("Lobby avg {:.0}", o.lobby.perf().unwrap_or(crate::stats::PERF_AVG)),
                 None => "No matches yet".into(),
             };
             stat_card(
@@ -336,7 +336,7 @@ fn stat_cards(ui: &mut Ui, career: &CareerSummary, o: &Overview) {
                 None,
                 |ui| {
                     if let Some(v) = perf {
-                        lobby(ui, v, o.lobby.perf().unwrap_or(500.0))
+                        lobby(ui, v, o.lobby.perf().unwrap_or(crate::stats::PERF_AVG))
                     }
                 },
             );
@@ -759,11 +759,11 @@ fn recent_match_row(ui: &mut Ui, cat: &Catalog, puuid: &str, m: &MatchDetail, no
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
-/// Green above 600, red below 400.
+/// Green from 300, red at 200 or below (0–500 scale).
 pub fn perf_color(perf: Option<u32>, p: &Palette) -> Color32 {
     match perf {
-        Some(v) if v >= 600 => p.win,
-        Some(v) if v <= 400 => p.loss,
+        Some(v) if v >= 300 => p.win,
+        Some(v) if v <= 200 => p.loss,
         _ => p.text,
     }
 }

@@ -1,9 +1,10 @@
 //! Accolades, agent mastery, play-session recaps and per-map stats, built
 //! from loaded match details. Pure functions, so they're easy to test.
 //!
-//! Everything here is derived from Riot's match details: nothing is a Riot
-//! "official" mastery or accolade. The rules are documented next to each
-//! item so the numbers can be explained in the UI.
+//! Everything here is derived from Riot's match details. Accolades are
+//! Tracked's own; agent mastery follows VALORANT's published Agent Mastery
+//! rates and thresholds. The rules are documented next to each item so the
+//! numbers can be explained in the UI.
 
 use std::collections::HashMap;
 
@@ -245,49 +246,96 @@ pub fn accolade_feed(puuid: &str, matches: &[&MatchDetail]) -> Vec<EarnedAccolad
 }
 
 // ---------------------------------------------------------------- mastery
+//
+// VALORANT's own Agent Mastery (Patch 13.06): every agent has an Act track
+// (10 levels per act, overlevelling allowed) and a Lifetime track. Mastery
+// Points (MP) are earned per minute played: 104/min for a win, 80/min for a
+// loss and up to 120/min for the match MVP in Competitive. Progress started
+// from zero at the patch, so earlier games don't count.
+//
+// Riot doesn't expose mastery through any API Tracked can read, so this
+// rebuilds it from the matches Tracked has loaded with Riot's published
+// rates and thresholds. It will be lower than the game if some of your
+// games this act aren't loaded.
 
-/// Mastery tiers, every five levels.
-pub const MASTERY_TIERS: [&str; 6] = ["Recruit", "Initiate", "Adept", "Veteran", "Expert", "Master"];
+/// When Patch 13.06 went live (Agent Mastery started from zero then).
+pub const MASTERY_START_UNIX: i64 = 1_790_121_600; // 2026-09-23 00:00 UTC
 
-/// Points to go from `level` to `level + 1`: 300, 350, 400…
-pub fn points_for_level(level: u32) -> u32 {
-    300 + 50 * level.saturating_sub(1)
+/// MP per minute.
+pub const MP_WIN: u32 = 104;
+pub const MP_LOSS: u32 = 80;
+pub const MP_MVP: u32 = 120;
+
+/// Total MP to reach each Act level, from Riot's published milestones
+/// (1, 2, 4, 7 and 10); levels in between are interpolated.
+pub const ACT_LEVELS: [u32; 10] = [
+    2_000, 10_500, 20_400, 30_300, 44_167, 58_033, 71_900, 92_067, 112_233, 132_400,
+];
+
+/// MP per level after level 10 (the last published step).
+const OVERLEVEL_STEP: u32 = (132_400 - 71_900) / 3;
+
+/// Act levels with a reward: a coloured border at 4, portrait background
+/// upgrades at 7 and 10.
+pub const ACT_MILESTONES: [u32; 3] = [4, 7, 10];
+
+/// Modes that earn MP at the win/loss rates. Other modes earn the loss rate
+/// for their duration.
+fn full_mode(queue: &str) -> bool {
+    matches!(
+        queue,
+        "competitive" | "unrated" | "swiftplay" | "spikerush" | "hurm" | "premier"
+    )
 }
 
-/// Mastery points for one match: 100 for playing, 60 for a win, up to 150
-/// for performing above the lobby average, plus each accolade's points.
+/// Mastery points for one match.
 pub fn match_points(m: &MatchDetail, puuid: &str) -> u32 {
-    let Some(_) = m.player(puuid) else { return 0 };
-    let mut pts = 100;
-    if matches!(m.outcome_for(puuid), Some((Outcome::Win, ..))) {
-        pts += 60;
+    if m.player(puuid).is_none() || m.info.started_at_unix < MASTERY_START_UNIX {
+        return 0;
     }
-    if let Some(perf) = crate::stats::performance(m, puuid) {
-        pts += (perf.saturating_sub(500) * 3 / 10).min(150);
+    let minutes = (m.info.game_length_ms as f32 / 60_000.0).max(0.0);
+    let queue = m.info.queue_id.as_str();
+    let rate = if !full_mode(queue) {
+        MP_LOSS
+    } else if queue == "competitive" && accolades(m, puuid).contains(&Accolade::MatchMvp) {
+        MP_MVP
+    } else if matches!(m.outcome_for(puuid), Some((Outcome::Win, ..))) {
+        MP_WIN
+    } else {
+        MP_LOSS
+    };
+    (minutes * rate as f32).round() as u32
+}
+
+/// Total MP needed to reach `level` (0 for level 0).
+pub fn points_for_level(level: u32) -> u32 {
+    match level {
+        0 => 0,
+        1..=10 => ACT_LEVELS[level as usize - 1],
+        _ => ACT_LEVELS[9] + (level - 10) * OVERLEVEL_STEP,
     }
-    pts + accolades(m, puuid).iter().map(|a| a.points()).sum::<u32>()
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Level {
-    /// 1-based.
+    /// Act level, starting at 0.
     pub level: u32,
-    /// Points into the current level, and points the level needs.
+    /// MP into the current level, and MP the next level needs.
     pub into: u32,
     pub needed: u32,
 }
 
 impl Level {
-    pub fn from_points(mut points: u32) -> Level {
-        let mut level = 1;
-        while points >= points_for_level(level) {
-            points -= points_for_level(level);
+    pub fn from_points(points: u32) -> Level {
+        let mut level = 0;
+        while points >= points_for_level(level + 1) {
             level += 1;
         }
+        let base = points_for_level(level);
         Level {
             level,
-            into: points,
-            needed: points_for_level(level),
+            into: points - base,
+            needed: points_for_level(level + 1) - base,
         }
     }
 
@@ -295,13 +343,19 @@ impl Level {
         self.into as f32 / self.needed.max(1) as f32
     }
 
-    pub fn tier(&self) -> &'static str {
-        MASTERY_TIERS[((self.level - 1) / 5).min(MASTERY_TIERS.len() as u32 - 1) as usize]
+    /// The last reward reached ("Level 7 reward"), or "" below level 4.
+    pub fn tier(&self) -> String {
+        ACT_MILESTONES
+            .iter()
+            .rev()
+            .find(|&&l| self.level >= l)
+            .map(|l| format!("Level {l} reward"))
+            .unwrap_or_default()
     }
 
-    /// 0-based tier index (for colours).
+    /// 0 below level 4, then 1 (border), 2 (level 7), 3 (level 10+).
     pub fn tier_index(&self) -> usize {
-        ((self.level - 1) / 5).min(MASTERY_TIERS.len() as u32 - 1) as usize
+        ACT_MILESTONES.iter().filter(|&&l| self.level >= l).count()
     }
 }
 
@@ -309,7 +363,10 @@ impl Level {
 pub struct AgentMastery {
     pub agent_id: String,
     pub totals: Totals,
+    /// Lifetime MP (since Agent Mastery started).
     pub points: u32,
+    /// MP this act, which sets the Act level.
+    pub act_points: u32,
     pub level: Level,
     pub accolades: u32,
     /// (performance score, match id) of the best game on this agent.
@@ -318,8 +375,14 @@ pub struct AgentMastery {
     pub maps: Vec<(String, u32, u32)>,
 }
 
-/// Mastery for every agent played, highest points first.
+/// Mastery for every agent played, highest Act MP first. The act is the one
+/// of the newest loaded match.
 pub fn mastery(puuid: &str, matches: &[&MatchDetail]) -> Vec<AgentMastery> {
+    let act = matches
+        .iter()
+        .max_by_key(|m| m.info.started_at_unix)
+        .map(|m| m.info.season_id.clone())
+        .unwrap_or_default();
     let mut map: HashMap<String, AgentMastery> = HashMap::new();
     let mut agent_maps: HashMap<String, HashMap<String, (u32, u32)>> = HashMap::new();
     for m in matches {
@@ -329,13 +392,18 @@ pub fn mastery(puuid: &str, matches: &[&MatchDetail]) -> Vec<AgentMastery> {
             agent_id: me.character_id.clone(),
             totals: Totals::default(),
             points: 0,
+            act_points: 0,
             level: Level::from_points(0),
             accolades: 0,
             best: None,
             maps: Vec::new(),
         });
         e.totals.add_match(m, puuid, perf);
-        e.points += match_points(m, puuid);
+        let mp = match_points(m, puuid);
+        e.points += mp;
+        if m.info.season_id == act {
+            e.act_points += mp;
+        }
         e.accolades += accolades(m, puuid).len() as u32;
         if let Some(p) = perf {
             if e.best.as_ref().is_none_or(|(b, _)| p > *b) {
@@ -354,7 +422,7 @@ pub fn mastery(puuid: &str, matches: &[&MatchDetail]) -> Vec<AgentMastery> {
     let mut v: Vec<AgentMastery> = map
         .into_values()
         .map(|mut a| {
-            a.level = Level::from_points(a.points);
+            a.level = Level::from_points(a.act_points);
             let mut maps: Vec<(String, u32, u32)> = agent_maps
                 .remove(&a.agent_id)
                 .unwrap_or_default()
@@ -366,7 +434,11 @@ pub fn mastery(puuid: &str, matches: &[&MatchDetail]) -> Vec<AgentMastery> {
             a
         })
         .collect();
-    v.sort_by(|a, b| b.points.cmp(&a.points).then(a.agent_id.cmp(&b.agent_id)));
+    v.sort_by(|a, b| {
+        (b.act_points, b.points, b.totals.matches)
+            .cmp(&(a.act_points, a.points, a.totals.matches))
+            .then(a.agent_id.cmp(&b.agent_id))
+    });
     v
 }
 
@@ -566,18 +638,36 @@ mod tests {
 
     #[test]
     fn mastery_levels() {
-        assert_eq!(Level::from_points(0).level, 1);
-        assert_eq!(Level::from_points(299).level, 1);
-        let l = Level::from_points(300 + 350 + 10);
-        assert_eq!((l.level, l.into, l.needed), (3, 10, 400));
-        assert_eq!(Level::from_points(0).tier(), "Recruit");
-        let games = [m("1", 0, 25, true), m("2", 4000, 5, false)];
+        assert_eq!(Level::from_points(0).level, 0);
+        assert_eq!(Level::from_points(1_999).level, 0);
+        let l = Level::from_points(10_500 + 100);
+        assert_eq!((l.level, l.into, l.needed), (2, 100, 20_400 - 10_500));
+        assert_eq!(Level::from_points(132_400).level, 10);
+        assert_eq!(Level::from_points(132_400 + OVERLEVEL_STEP).level, 11);
+        assert_eq!(Level::from_points(30_300).tier(), "Level 4 reward");
+        assert_eq!(Level::from_points(0).tier_index(), 0);
+
+        let t0 = MASTERY_START_UNIX + 3600;
+        let mut games = [m("1", t0, 25, true), m("2", t0 + 4000, 5, false), m("old", 0, 30, true)];
+        for g in &mut games {
+            g.info.queue_id = "unrated".into();
+            g.info.season_id = "act".into();
+        }
+        games[0].info.season_id = "earlier-act".into();
         let refs: Vec<&MatchDetail> = games.iter().collect();
+        // 30-minute games: a win is 104/min, a loss 80/min, pre-patch games count nothing.
+        assert_eq!(match_points(&games[0], "me"), 3_120);
+        assert_eq!(match_points(&games[1], "me"), 2_400);
+        assert_eq!(match_points(&games[2], "me"), 0);
         let ms = mastery("me", &refs);
         assert_eq!(ms.len(), 1);
-        assert_eq!(ms[0].totals.matches, 2);
-        assert_eq!(ms[0].best.as_ref().unwrap().1, "1");
-        assert!(ms[0].points > 260, "two games plus a win and accolades");
+        assert_eq!(ms[0].totals.matches, 3);
+        assert_eq!(ms[0].points, 5_520, "lifetime");
+        assert_eq!(ms[0].act_points, 2_400, "only the newest match's act");
+        assert_eq!(ms[0].level.level, 1);
+
+        games[0].info.queue_id = "competitive".into();
+        assert_eq!(match_points(&games[0], "me"), 3_600, "match MVP in competitive");
     }
 
     #[test]

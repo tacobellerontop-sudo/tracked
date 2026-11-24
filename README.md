@@ -13,11 +13,13 @@ A lightweight, native desktop companion for VALORANT, written in Rust with
   game, accolades and agents played) and your overall stats: performance over time, maps, agents
   and career totals. **Load older matches** pages further back through your history, and matches
   already cached on disk are read back so these stats grow over time
-- **Mastery:** a mastery level for every agent (games, wins, performance and accolades earn points;
-  every five levels is a new tier) and an **Accolades** view: 12 accolades (Match MVP, Ace, Clutch
-  Master, Entry King, Headhunter…) with how often and when you last earned each
+- **Agents → Mastery:** each agent's VALORANT Agent Mastery rebuilt from your matches with Riot's
+  published rules (104 MP/min for a win, 80 for a loss, 120 for the Competitive MVP; Act levels at
+  2,000 … 132,400 MP; only games since Patch 13.06). Riot doesn't expose mastery through its API, so
+  load older matches if your game shows more. **Agents → Accolades:** 12 accolades (Match MVP, Ace,
+  Clutch Master, Entry King, Headhunter…) with how often and when you last earned each
 - **Matches / Agents:** full match history and per-agent stats (filterable from the search bar).
-  Each match shows a **performance score** (0–1000, 500 = the lobby average) that rates you
+  Each match shows a **performance score** (0–500 like VALORANT's, 250 = the lobby average; Tracked's estimate, since Riot doesn't share its own score) that rates you
   against the other nine players on ACS, KAST, ADR, K/D, entry duels and headshot %
 - **Weapons:** kills, headshot %, damage per round and kills per round for every gun you've used,
   your signature weapon, where your kills come from, and highlights (sharpest aim, hardest hitter).

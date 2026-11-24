@@ -55,10 +55,8 @@ const NAV_SECTIONS: &[(Option<&str>, &[NavItem])] = &[
         &[
             (Screen::Matches, "Matches", Icon::Matches, Some(egui::Key::Num3)),
             (Screen::Recaps, "Recaps", Icon::Recap, Some(egui::Key::Num4)),
-            (Screen::Mastery, "Mastery", Icon::Trophy, Some(egui::Key::Num5)),
-            (Screen::Agents, "Agents", Icon::Agents, Some(egui::Key::Num6)),
-            (Screen::Weapons, "Weapons", Icon::Target, Some(egui::Key::Num7)),
-            (Screen::Replays, "Replays", Icon::Map, None),
+            (Screen::Agents, "Agents", Icon::Agents, Some(egui::Key::Num5)),
+            (Screen::Weapons, "Weapons", Icon::Target, Some(egui::Key::Num6)),
         ],
     ),
     (
@@ -70,10 +68,7 @@ const NAV_SECTIONS: &[(Option<&str>, &[NavItem])] = &[
     ),
     (
         Some("Community"),
-        &[
-            (Screen::Lookup, "Players", Icon::Search, Some(egui::Key::Num8)),
-            (Screen::Social, "Social", Icon::Social, Some(egui::Key::Num9)),
-        ],
+        &[(Screen::Lookup, "Players", Icon::Social, Some(egui::Key::Num7))],
     ),
     (
         Some("Tools"),
@@ -83,6 +78,40 @@ const NAV_SECTIONS: &[(Option<&str>, &[NavItem])] = &[
         ],
     ),
 ];
+
+/// Screens that share one sidebar entry, shown as tabs under the page title.
+/// The first screen of each group owns the sidebar entry.
+const NAV_GROUPS: &[&[(Screen, &str)]] = &[
+    &[
+        (Screen::Matches, "History"),
+        (Screen::Maps, "Maps"),
+        (Screen::Replays, "Replays"),
+    ],
+    &[
+        (Screen::Agents, "Stats"),
+        (Screen::Mastery, "Mastery"),
+        (Screen::Accolades, "Accolades"),
+    ],
+    &[(Screen::Lookup, "Look up"), (Screen::Social, "Friends")],
+];
+
+fn nav_group(screen: Screen) -> Option<&'static [(Screen, &'static str)]> {
+    NAV_GROUPS.iter().copied().find(|g| g.iter().any(|(s, _)| *s == screen))
+}
+
+/// The tabs of the current screen's group, if it has one.
+fn group_tabs(ui: &mut egui::Ui, state: &mut AppState) {
+    let Some(group) = nav_group(state.screen) else { return };
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        for (screen, label) in group {
+            if theme::pill(ui, label, state.screen == *screen).clicked() {
+                state.screen = *screen;
+            }
+        }
+    });
+    ui.add_space(12.0);
+}
 
 fn nav_items() -> impl Iterator<Item = &'static NavItem> {
     NAV_SECTIONS.iter().flat_map(|(_, items)| items.iter())
@@ -106,15 +135,17 @@ fn page_heading(state: &AppState) -> (&'static str, String) {
         Screen::Live => ("Live", "Your lobby, ranks and recent form".into()),
         Screen::Matches => ("Matches", format!("Your last {n} games")),
         Screen::Recaps => ("Recaps", "Your play sessions and overall stats".into()),
-        Screen::Mastery => ("Mastery", "Agent mastery and the accolades you've earned".into()),
+        Screen::Mastery => ("Agents", "Agent mastery, the way VALORANT counts it".into()),
+        Screen::Accolades => ("Agents", "The accolades you've earned".into()),
+        Screen::Maps => ("Matches", "How you do on each map".into()),
         Screen::Agents => ("Agents", "How you play each agent".into()),
         Screen::Weapons => ("Weapons", "Kills, damage and accuracy per gun".into()),
-        Screen::Replays => ("Replays", "Watch any match top-down".into()),
+        Screen::Replays => ("Matches", "Watch any match top-down".into()),
         Screen::Store => ("Store", "Today's offers, bundles and your wallet".into()),
         Screen::Loadout => ("Loadout", "What you have equipped and own".into()),
         Screen::Lookup => ("Players", "Look anyone up by Riot ID".into()),
         Screen::Crosshairs => ("Crosshairs", "Build, preview and save crosshair codes".into()),
-        Screen::Social => ("Social", "Friends and whispers".into()),
+        Screen::Social => ("Players", "Friends and whispers".into()),
         Screen::Settings => ("Settings", String::new()),
         Screen::Connection => ("Connection", "How Tracked talks to the Riot Client".into()),
         Screen::MatchDetail => ("Match", String::new()),
@@ -174,7 +205,8 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState, intents: &IntentTx) {
         .show(ctx, |ui| {
             ambient(ui);
             top_bar(ui, state, intents);
-            ui.add_space(18.0);
+            ui.add_space(14.0);
+            group_tabs(ui, state);
             // Social manages its own scroll areas (friends, conversations, messages).
             if state.screen == Screen::Social {
                 social_screen(ui, state, intents);
@@ -210,7 +242,15 @@ pub fn draw(ctx: &egui::Context, state: &mut AppState, intents: &IntentTx) {
                     Screen::Agents => pages::agents(ui, state),
                     Screen::Weapons => weapons::ui(ui, state),
                     Screen::Recaps => recaps::ui(ui, state, intents),
-                    Screen::Mastery => mastery::ui(ui, state, intents),
+                    Screen::Mastery => {
+                        state.mastery_tab = crate::app::MasteryTab::Agents;
+                        mastery::ui(ui, state, intents)
+                    }
+                    Screen::Accolades => {
+                        state.mastery_tab = crate::app::MasteryTab::Accolades;
+                        mastery::ui(ui, state, intents)
+                    }
+                    Screen::Maps => recaps::maps(ui, state),
                     Screen::Store => store::ui(ui, state, intents),
                     Screen::Loadout => loadout::ui(ui, state, intents),
                     Screen::Live => theme::card(ui, None, |ui| live::ui(ui, state, intents)),
@@ -292,7 +332,7 @@ fn sidebar(ui: &mut egui::Ui, state: &mut AppState, visible: &dyn Fn(&Screen) ->
                 font,
                 color,
             );
-            if *screen == Screen::Social && unread > 0 {
+            if *screen == Screen::Lookup && unread > 0 {
                 let c = rect.right_center() - vec2(16.0, 0.0);
                 ui.painter().circle_filled(c, 9.0, p.accent);
                 ui.painter().text(
@@ -640,5 +680,5 @@ fn nav_owner(state: &AppState) -> Screen {
     if screen == Screen::MatchDetail {
         screen = state.return_to;
     }
-    screen
+    nav_group(screen).map(|g| g[0].0).unwrap_or(screen)
 }
