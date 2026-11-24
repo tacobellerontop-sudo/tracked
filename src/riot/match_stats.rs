@@ -4,6 +4,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::models::*;
+use crate::content::weapons;
 
 /// A death counts as traded if a teammate kills the killer within this window.
 pub const TRADE_WINDOW_MS: u64 = 5_000;
@@ -63,8 +64,15 @@ pub fn normalize(raw: &RawMatch) -> MatchDetail {
     }
 
     let mut rounds = Vec::with_capacity(raw.round_results.len());
+    let mut weapons: HashMap<String, HashMap<String, WeaponStat>> = HashMap::new();
     for round in &raw.round_results {
         rounds.push(apply_round(round, &team_of, &mut stats));
+        apply_round_weapons(round, &mut weapons);
+    }
+    for (puuid, by_weapon) in weapons {
+        let mut list: Vec<WeaponStat> = by_weapon.into_values().collect();
+        sort_weapons(&mut list);
+        stats.entry(puuid).or_default().weapons = list;
     }
 
     // Fall back to the number of rounds if the per-player count is missing.
@@ -92,6 +100,7 @@ pub fn normalize(raw: &RawMatch) -> MatchDetail {
 
     let i = &raw.match_info;
     MatchDetail {
+        schema: MatchDetail::SCHEMA,
         info: MatchInfo {
             match_id: i.match_id.clone(),
             map_id: i.map_id.clone(),
@@ -223,6 +232,110 @@ fn apply_round(
                 score: ps.score,
             })
             .collect(),
+    }
+}
+
+/// Most kills first, then most damage; ties broken by id so the order is stable.
+pub fn sort_weapons(list: &mut [WeaponStat]) {
+    list.sort_by(|a, b| {
+        b.kills
+            .cmp(&a.kills)
+            .then(b.damage.cmp(&a.damage))
+            .then(a.weapon_id.cmp(&b.weapon_id))
+    });
+}
+
+/// The weapon bucket a kill belongs to, or `None` for spike / fall damage.
+fn kill_weapon(k: &RawKill) -> Option<String> {
+    let f = &k.finishing_damage;
+    match f.damage_type.as_str() {
+        "Weapon" if !f.damage_item.is_empty() => Some(f.damage_item.to_ascii_lowercase()),
+        "Melee" => Some(weapons::MELEE.to_string()),
+        "Ability" => Some(weapons::ABILITIES.to_string()),
+        _ => None,
+    }
+}
+
+/// Add one round's per-weapon kills, hits and damage (see [`WeaponStat`]).
+fn apply_round_weapons(round: &RawRound, out: &mut HashMap<String, HashMap<String, WeaponStat>>) {
+    // Hits on each victim this round, by attacker.
+    let mut hits: HashMap<(&str, &str), &RawDamage> = HashMap::new();
+    for ps in &round.player_stats {
+        for d in &ps.damage {
+            hits.insert((ps.subject.as_str(), d.receiver.as_str()), d);
+        }
+    }
+    // Which weapon finished each (killer, victim) pair.
+    let mut killed_with: HashMap<(&str, &str), String> = HashMap::new();
+    for ps in &round.player_stats {
+        for k in &ps.kills {
+            let Some(w) = kill_weapon(k) else { continue };
+            let entry = out
+                .entry(k.killer.clone())
+                .or_default()
+                .entry(w.clone())
+                .or_insert_with(|| WeaponStat {
+                    weapon_id: w.clone(),
+                    ..Default::default()
+                });
+            entry.kills += 1;
+            let headshot_only = hits
+                .get(&(k.killer.as_str(), k.victim.as_str()))
+                .is_some_and(|d| d.headshots > 0 && d.bodyshots == 0 && d.legshots == 0);
+            if headshot_only && weapons::is_gun(&w) {
+                entry.headshot_kills += 1;
+            }
+            killed_with.insert((k.killer.as_str(), k.victim.as_str()), w);
+        }
+    }
+    for ps in &round.player_stats {
+        let carried = ps
+            .economy
+            .as_ref()
+            .map(|e| e.weapon.to_ascii_lowercase())
+            .filter(|w| !w.is_empty());
+        if let Some(w) = &carried {
+            let entry = out
+                .entry(ps.subject.clone())
+                .or_default()
+                .entry(w.clone())
+                .or_insert_with(|| WeaponStat {
+                    weapon_id: w.clone(),
+                    ..Default::default()
+                });
+            entry.rounds += 1;
+        }
+        // Without economy data, fall back to the only gun this player killed with this round.
+        let fallback = || {
+            let mut guns = killed_with
+                .iter()
+                .filter(|((killer, _), w)| *killer == ps.subject && weapons::is_gun(w))
+                .map(|(_, w)| w.as_str());
+            let first = guns.next()?;
+            guns.all(|w| w == first).then(|| first.to_string())
+        };
+        for d in &ps.damage {
+            // Ability kills say nothing about which gun landed the hits.
+            let weapon = killed_with
+                .get(&(ps.subject.as_str(), d.receiver.as_str()))
+                .filter(|w| *w != weapons::ABILITIES)
+                .cloned()
+                .or_else(|| carried.clone())
+                .or_else(fallback);
+            let Some(w) = weapon else { continue };
+            let entry = out
+                .entry(ps.subject.clone())
+                .or_default()
+                .entry(w.clone())
+                .or_insert_with(|| WeaponStat {
+                    weapon_id: w.clone(),
+                    ..Default::default()
+                });
+            entry.damage += d.damage;
+            entry.headshots += d.headshots;
+            entry.bodyshots += d.bodyshots;
+            entry.legshots += d.legshots;
+        }
     }
 }
 

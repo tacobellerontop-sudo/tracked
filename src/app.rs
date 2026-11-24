@@ -28,6 +28,8 @@ pub enum Screen {
     /// Pick a match to watch as a 2D replay.
     Replays,
     Agents,
+    /// Per-weapon stats over loaded matches.
+    Weapons,
     Lookup,
     Crosshairs,
     Social,

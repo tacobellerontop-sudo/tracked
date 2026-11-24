@@ -37,42 +37,43 @@ pub struct Palette {
 
 pub const LIGHT: Palette = Palette {
     dark: false,
-    bg: Color32::from_rgb(238, 236, 235),
-    sidebar: Color32::from_rgb(243, 241, 240),
-    card: Color32::from_rgb(248, 247, 246),
-    well: Color32::from_rgb(236, 233, 232),
-    stroke: Color32::from_rgb(228, 224, 222),
-    text: Color32::from_rgb(38, 41, 48),
-    weak: Color32::from_rgb(128, 131, 139),
-    faint: Color32::from_rgb(178, 179, 184),
-    accent: Color32::from_rgb(226, 98, 108),
-    win: Color32::from_rgb(38, 166, 136),
-    loss: Color32::from_rgb(222, 88, 92),
-    warn: Color32::from_rgb(214, 160, 52),
-    navy: Color32::from_rgb(31, 37, 50),
-    on_navy: Color32::from_rgb(244, 244, 246),
-    selected: Color32::from_rgb(229, 225, 224),
-    grid: Color32::from_rgb(229, 226, 225),
+    bg: Color32::from_rgb(240, 241, 245),
+    sidebar: Color32::from_rgb(249, 249, 251),
+    card: Color32::from_rgb(255, 255, 255),
+    well: Color32::from_rgb(236, 238, 243),
+    stroke: Color32::from_rgb(225, 228, 235),
+    text: Color32::from_rgb(20, 23, 31),
+    weak: Color32::from_rgb(110, 116, 130),
+    faint: Color32::from_rgb(168, 173, 184),
+    accent: Color32::from_rgb(240, 62, 78),
+    win: Color32::from_rgb(20, 168, 132),
+    loss: Color32::from_rgb(228, 70, 82),
+    warn: Color32::from_rgb(218, 150, 30),
+    navy: Color32::from_rgb(17, 20, 28),
+    on_navy: Color32::from_rgb(246, 247, 250),
+    selected: Color32::from_rgb(236, 238, 243),
+    grid: Color32::from_rgb(230, 232, 238),
 };
 
+/// Deep blue-black with VALORANT-red accents.
 pub const DARK: Palette = Palette {
     dark: true,
-    bg: Color32::from_rgb(19, 21, 26),
-    sidebar: Color32::from_rgb(23, 25, 31),
-    card: Color32::from_rgb(29, 32, 39),
-    well: Color32::from_rgb(37, 41, 50),
-    stroke: Color32::from_rgb(43, 47, 57),
-    text: Color32::from_rgb(230, 231, 235),
-    weak: Color32::from_rgb(140, 144, 154),
-    faint: Color32::from_rgb(92, 96, 106),
-    accent: Color32::from_rgb(236, 104, 114),
-    win: Color32::from_rgb(52, 190, 156),
-    loss: Color32::from_rgb(236, 98, 100),
-    warn: Color32::from_rgb(226, 176, 72),
-    navy: Color32::from_rgb(232, 233, 237),
-    on_navy: Color32::from_rgb(25, 28, 35),
-    selected: Color32::from_rgb(40, 44, 54),
-    grid: Color32::from_rgb(40, 44, 53),
+    bg: Color32::from_rgb(12, 14, 19),
+    sidebar: Color32::from_rgb(15, 17, 23),
+    card: Color32::from_rgb(21, 24, 31),
+    well: Color32::from_rgb(30, 34, 43),
+    stroke: Color32::from_rgb(36, 40, 50),
+    text: Color32::from_rgb(236, 238, 243),
+    weak: Color32::from_rgb(142, 148, 162),
+    faint: Color32::from_rgb(86, 92, 106),
+    accent: Color32::from_rgb(255, 70, 85),
+    win: Color32::from_rgb(45, 212, 168),
+    loss: Color32::from_rgb(255, 92, 102),
+    warn: Color32::from_rgb(240, 182, 64),
+    navy: Color32::from_rgb(240, 241, 245),
+    on_navy: Color32::from_rgb(14, 16, 22),
+    selected: Color32::from_rgb(30, 34, 44),
+    grid: Color32::from_rgb(34, 38, 48),
 };
 
 fn palette_id() -> egui::Id {
@@ -330,7 +331,7 @@ pub fn skeleton(ui: &Ui, rect: egui::Rect, radius: u8) {
 
 /// The active palette (set by [`apply`]).
 pub fn pal(ctx: &egui::Context) -> Palette {
-    ctx.data(|d| d.get_temp::<Palette>(palette_id())).unwrap_or(LIGHT)
+    ctx.data(|d| d.get_temp::<Palette>(palette_id())).unwrap_or(DARK)
 }
 
 /// Install the palette and egui style for `theme`.
@@ -350,9 +351,9 @@ pub fn apply(ctx: &egui::Context, theme: Theme) {
     v.window_fill = p.card;
     v.extreme_bg_color = p.well;
     v.faint_bg_color = if p.dark {
-        Color32::from_rgb(33, 36, 44)
+        Color32::from_rgb(25, 28, 36)
     } else {
-        Color32::from_rgb(242, 240, 239)
+        Color32::from_rgb(246, 247, 250)
     };
     v.window_stroke = Stroke::new(1.0_f32, p.stroke);
     v.window_corner_radius = CornerRadius::same(14);
@@ -405,29 +406,115 @@ pub fn card_frame(p: &Palette) -> Frame {
     Frame::NONE
         .fill(p.card)
         .stroke(Stroke::new(1.0_f32, p.stroke))
-        .corner_radius(CornerRadius::same(18))
+        .corner_radius(CornerRadius::same(16))
         .inner_margin(Margin::same(20))
         .shadow(Shadow {
-            offset: [0, 6],
-            blur: 28,
+            offset: [0, 8],
+            blur: 32,
             spread: 0,
-            color: Color32::from_black_alpha(if p.dark { 60 } else { 12 }),
+            color: Color32::from_black_alpha(if p.dark { 90 } else { 14 }),
         })
 }
 
 /// A card filling the available width, with optional fixed height.
 pub fn card<R>(ui: &mut Ui, height: Option<f32>, add: impl FnOnce(&mut Ui) -> R) -> R {
     let p = pal(ui.ctx());
-    card_frame(&p)
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.spacing_mut().item_spacing = Vec2::new(8.0, 6.0);
-            if let Some(h) = height {
-                ui.set_min_height(h - 36.0);
-            }
-            add(ui)
-        })
-        .inner
+    let r = card_frame(&p).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.spacing_mut().item_spacing = Vec2::new(8.0, 6.0);
+        if let Some(h) = height {
+            ui.set_min_height(h - 36.0);
+        }
+        add(ui)
+    });
+    top_sheen(ui, r.response.rect, 16.0);
+    r.inner
+}
+
+/// A faint light catch along a card's top edge (dark theme), so cards read
+/// as raised glass rather than flat boxes.
+pub fn top_sheen(ui: &Ui, rect: egui::Rect, radius: f32) {
+    let p = pal(ui.ctx());
+    if !p.dark {
+        return;
+    }
+    let y = rect.top() + 0.5;
+    let (l, r) = (rect.left() + radius, rect.right() - radius);
+    let mid = (l + r) / 2.0;
+    let c = Color32::from_white_alpha(22);
+    let mut mesh = egui::Mesh::default();
+    for (x, col) in [(l, Color32::TRANSPARENT), (mid, c), (r, Color32::TRANSPARENT)] {
+        mesh.colored_vertex(egui::pos2(x, y - 0.5), col);
+        mesh.colored_vertex(egui::pos2(x, y + 0.5), col);
+    }
+    for i in 0..2u32 {
+        let b = i * 2;
+        mesh.add_triangle(b, b + 1, b + 2);
+        mesh.add_triangle(b + 1, b + 2, b + 3);
+    }
+    ui.painter().add(mesh);
+}
+
+/// Horizontal gradient fill from `left` to `right` colours.
+pub fn gradient_rect(painter: &egui::Painter, rect: egui::Rect, left: Color32, right: Color32) {
+    let mut mesh = egui::Mesh::default();
+    mesh.colored_vertex(rect.left_top(), left);
+    mesh.colored_vertex(rect.right_top(), right);
+    mesh.colored_vertex(rect.left_bottom(), left);
+    mesh.colored_vertex(rect.right_bottom(), right);
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(1, 2, 3);
+    painter.add(mesh);
+}
+
+/// Page heading: an accent tick, a title and a muted subtitle.
+pub fn page_title(ui: &mut Ui, title: &str, subtitle: &str) {
+    let p = pal(ui.ctx());
+    ui.horizontal(|ui| {
+        let (r, _) = ui.allocate_exact_size(Vec2::new(4.0, 22.0), Sense::hover());
+        ui.painter().rect_filled(r, CornerRadius::same(2), p.accent);
+        ui.add_space(4.0);
+        ui.label(RichText::new(title).font(semibold(20.0)).color(p.text));
+        if !subtitle.is_empty() {
+            ui.add_space(4.0);
+            ui.label(RichText::new(subtitle).size(12.5).color(p.weak));
+        }
+    });
+}
+
+/// Small uppercase label above a number ("KILLS").
+pub fn eyebrow(ui: &mut Ui, text: &str) {
+    let p = pal(ui.ctx());
+    ui.label(
+        RichText::new(text.to_uppercase())
+            .font(medium(10.0))
+            .extra_letter_spacing(0.8)
+            .color(p.weak),
+    );
+}
+
+/// A rounded progress bar (0..=1) in `color` on a well-coloured track.
+pub fn bar(ui: &mut Ui, frac: f32, width: f32, height: f32, color: Color32) {
+    let p = pal(ui.ctx());
+    let (r, _) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
+    let radius = CornerRadius::same((height / 2.0) as u8);
+    ui.painter().rect_filled(r, radius, p.well);
+    let f = frac.clamp(0.0, 1.0);
+    if f > 0.0 {
+        let fill = egui::Rect::from_min_size(r.min, Vec2::new((r.width() * f).max(height), height));
+        ui.painter().rect_filled(fill, radius, color);
+    }
+}
+
+/// A small tinted tag ("RIFLE").
+pub fn chip(ui: &mut Ui, text: &str, color: Color32) -> Response {
+    let galley = ui.painter().layout_no_wrap(text.to_uppercase(), medium(9.5), color);
+    let size = galley.size() + Vec2::new(14.0, 6.0);
+    let (r, resp) = ui.allocate_exact_size(size, Sense::hover());
+    ui.painter()
+        .rect_filled(r, CornerRadius::same(6), color.gamma_multiply(0.14));
+    ui.painter().galley(r.center() - galley.size() / 2.0, galley, color);
+    resp
 }
 
 /// Card title with an optional right-aligned link ("View all →").

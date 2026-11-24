@@ -93,12 +93,7 @@ pub fn agents(ui: &mut Ui, state: &mut AppState) {
             matches_query(&state.search, &[&name])
         })
         .collect();
-    ui.label(
-        RichText::new(format!("Agents · last {} matches", refs.len()))
-            .size(15.0)
-            .strong()
-            .color(p.text),
-    );
+    theme::page_title(ui, "Agents", &format!("last {} matches", refs.len()));
     if list.is_empty() {
         theme::card(ui, None, |ui| {
             ui.weak("No agents to show yet.");
@@ -133,20 +128,45 @@ pub fn agents(ui: &mut Ui, state: &mut AppState) {
                         });
                         ui.add_space(8.0);
                         let t = &a.totals;
-                        let wr = t.win_rate().map(|w| format!("{w:.0}%")).unwrap_or_else(|| "–".into());
+                        // Win rate as a bar, then the rest as a 2×2 grid of numbers.
+                        let wr = t.win_rate();
+                        ui.horizontal(|ui| {
+                            theme::eyebrow(ui, "Win rate");
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                let color = match wr {
+                                    Some(w) if w >= 50.0 => p.win,
+                                    Some(_) => p.loss,
+                                    None => p.weak,
+                                };
+                                ui.label(
+                                    RichText::new(wr.map(|w| format!("{w:.0}%")).unwrap_or_else(|| "–".into()))
+                                        .font(theme::semibold(13.0))
+                                        .color(color),
+                                );
+                            });
+                        });
+                        let color = if wr.unwrap_or(0.0) >= 50.0 { p.win } else { p.loss };
+                        theme::bar(ui, wr.unwrap_or(0.0) / 100.0, ui.available_width(), 6.0, color);
+                        ui.add_space(6.0);
                         egui::Grid::new(("agent", &a.agent_id))
                             .num_columns(2)
-                            .spacing([24.0, 4.0])
+                            .spacing([16.0, 8.0])
+                            .min_col_width((ui.available_width() - 16.0) / 2.0)
                             .show(ui, |ui| {
-                                for (k, v) in [
-                                    ("Win rate", wr),
+                                let cells = [
                                     ("K/D", format!("{:.2}", t.kd())),
                                     ("ACS", format!("{:.0}", t.acs())),
                                     ("ADR", format!("{:.0}", t.adr())),
                                     ("Headshot %", format!("{:.1}%", t.hs_pct())),
-                                ] {
-                                    ui.label(RichText::new(k).size(12.0).color(p.weak));
-                                    ui.label(RichText::new(v).size(12.5).color(p.text));
+                                ];
+                                for pair in cells.chunks(2) {
+                                    for (k, v) in pair {
+                                        ui.vertical(|ui| {
+                                            ui.spacing_mut().item_spacing.y = 1.0;
+                                            theme::eyebrow(ui, k);
+                                            ui.label(RichText::new(v).font(theme::semibold(16.0)).color(p.text));
+                                        });
+                                    }
                                     ui.end_row();
                                 }
                             });
