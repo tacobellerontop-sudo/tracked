@@ -73,6 +73,45 @@ fn identity(i: usize) -> serde_json::Value {
     serde_json::json!({ "AccountLevel": 100 + i, "Incognito": i == INCOGNITO, "HideAccountLevel": i == INCOGNITO })
 }
 
+/// A skin level the fake account owns (also in the fake bundle).
+pub const SKIN_LEVEL_OWNED: &str = "5a1b2c3d-0000-4000-8000-0000000000aa";
+
+/// A storefront shaped like Riot's (v3), trimmed to a few offers.
+pub fn store_fixture() -> serde_json::Value {
+    let vp = "85ad13f7-3d1b-5128-9eb2-7cd8ee0b5741";
+    let skin = "e7c63390-eda7-46e0-bb7a-a6abdacd2433";
+    let offer = |id: &str, price: u32| {
+        serde_json::json!({ "OfferID": id, "IsDirectPurchase": true, "StartDate": "2026-11-05T00:00:00Z",
+        "Cost": { vp: price }, "Rewards": [{ "ItemTypeID": skin, "ItemID": id, "Quantity": 1 }] })
+    };
+    serde_json::json!({
+        "FeaturedBundle": {
+            "Bundle": {},
+            "Bundles": [{ "ID": "bundle-1", "DataAssetID": "2b1b2c3d-0000-4000-8000-000000000001", "CurrencyID": vp,
+                "Items": [
+                    { "Item": { "ItemTypeID": skin, "ItemID": SKIN_LEVEL_OWNED, "Amount": 1 }, "BasePrice": 1775, "CurrencyID": vp,
+                      "DiscountPercent": 0.33, "DiscountedPrice": 1189, "IsPromoItem": false },
+                    { "Item": { "ItemTypeID": skin, "ItemID": "5a1b2c3d-0000-4000-8000-0000000000bb", "Amount": 1 }, "BasePrice": 1775,
+                      "CurrencyID": vp, "DiscountPercent": 0.33, "DiscountedPrice": 1189, "IsPromoItem": false }
+                ],
+                "ItemOffers": null, "TotalBaseCost": { vp: 3550 }, "TotalDiscountedCost": { vp: 2378 },
+                "TotalDiscountPercent": 0.33, "DurationRemainingInSeconds": 3600, "WholesaleOnly": false }],
+            "BundleRemainingDurationInSeconds": 3600
+        },
+        "SkinsPanelLayout": {
+            "SingleItemOffers": ["a1", "a2"],
+            "SingleItemStoreOffers": [offer("6a1b2c3d-0000-4000-8000-000000000001", 875), offer("6a1b2c3d-0000-4000-8000-000000000002", 1275)],
+            "SingleItemOffersRemainingDurationInSeconds": 7200
+        },
+        "UpgradeCurrencyStore": { "UpgradeCurrencyOffers": [] },
+        "BonusStore": {
+            "BonusStoreOffers": [{ "BonusOfferID": "bo1", "Offer": offer("7a1b2c3d-0000-4000-8000-000000000001", 1775),
+                                   "DiscountPercent": 40, "DiscountCosts": { vp: 1065 }, "IsSeen": false }],
+            "BonusStoreRemainingDurationInSeconds": 86400
+        }
+    })
+}
+
 /// PD / GLZ routes (bearer-authenticated).
 fn riot_route(method: &str, path: &str, body: &str) -> Option<serde_json::Value> {
     let seg: Vec<&str> = path.trim_start_matches('/').split('/').collect();
@@ -130,6 +169,41 @@ fn riot_route(method: &str, path: &str, body: &str) -> Option<serde_json::Value>
             "Players": (0..10).map(|i| serde_json::json!({ "Subject": player(i), "TeamID": if i < 5 { "Blue" } else { "Red" },
                 "CharacterID": "agent", "PlayerIdentity": identity(i) })).collect::<Vec<_>>()
         }),
+        // Store / loadout (read-only). The storefront is POST v3 only, like
+        // live shards, so the app's v2 fallback isn't what passes.
+        ("POST", ["store", "v3", "storefront", PUUID]) => store_fixture(),
+        ("GET", ["store", "v1", "wallet", PUUID]) => serde_json::json!({ "Balances": {
+            "85ad13f7-3d1b-5128-9eb2-7cd8ee0b5741": 1500, "e59aa87c-4cbf-517a-5983-6e81511be9b7": 40,
+            "85ca954a-41f2-ce94-9b45-8ca3dd39a00d": 9000 } }),
+        ("GET", ["store", "v1", "entitlements", PUUID, item_type]) => serde_json::json!({
+            "ItemTypeID": item_type,
+            "Entitlements": if *item_type == "e7c63390-eda7-46e0-bb7a-a6abdacd2433" {
+                serde_json::json!([{ "TypeID": item_type, "ItemID": SKIN_LEVEL_OWNED }, { "TypeID": item_type, "ItemID": SKIN_LEVEL_OWNED }])
+            } else {
+                serde_json::json!([{ "TypeID": item_type, "ItemID": "11111111-0000-4000-8000-000000000001" }])
+            }
+        }),
+        ("GET", ["personalization", "v2", "players", PUUID, "playerloadout"]) => serde_json::json!({
+            "Subject": PUUID, "Version": 3,
+            "Guns": [
+                { "ID": "9c82e19d-4575-0200-1a81-3eacf00cf872", "SkinID": "s1", "SkinLevelID": SKIN_LEVEL_OWNED, "ChromaID": "c1",
+                  "CharmInstanceID": "x", "CharmID": "b1", "CharmLevelID": "bl1", "Attachments": [] },
+                { "ID": "29a0cfab-485b-f5d5-779a-b59f85e204a8", "SkinID": "s2", "SkinLevelID": "l2", "ChromaID": "c2", "Attachments": [] }
+            ],
+            "Sprays": [{ "EquipSlotID": "slot", "SprayID": "sp1", "SprayLevelID": null }],
+            "Identity": { "PlayerCardID": "card", "PlayerTitleID": "title", "AccountLevel": 123,
+                          "PreferredLevelBorderID": "", "HideAccountLevel": false },
+            "Incognito": false
+        }),
+        ("GET", ["account-xp", "v1", "players", PUUID]) => serde_json::json!({
+            "Version": 1, "Subject": PUUID, "Progress": { "Level": 123, "XP": 2500 },
+            "History": [{ "ID": "m1", "MatchStart": "2026-11-04T18:00:00.000Z", "StartProgress": { "Level": 123, "XP": 0 },
+                          "EndProgress": { "Level": 123, "XP": 2500 }, "XPDelta": 2500,
+                          "XPSources": [{ "ID": "time-played", "Amount": 1500 }, { "ID": "match-win", "Amount": 1000 }],
+                          "XPMultipliers": [] }],
+            "LastTimeGrantedFirstWin": "2026-11-04T18:30:00.000Z",
+            "NextTimeFirstWinAvailable": "2000-01-01T00:00:00.000Z"
+        }),
         ("GET", ["parties", "v1", "players", _]) => serde_json::json!({ "CurrentPartyID": PARTY_ID }),
         ("GET", ["parties", "v1", "parties", PARTY_ID]) => serde_json::json!({ "ID": PARTY_ID,
             "Members": [{ "Subject": PUUID, "PlayerIdentity": identity(0) }, { "Subject": player(1), "PlayerIdentity": identity(1) }] }),
@@ -146,6 +220,9 @@ fn is_riot_path(path: &str) -> bool {
         "/pregame/",
         "/core-game/",
         "/parties/",
+        "/store/",
+        "/personalization/",
+        "/account-xp/",
     ]
     .iter()
     .any(|p| path.starts_with(p))

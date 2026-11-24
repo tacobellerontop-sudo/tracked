@@ -37,6 +37,10 @@ required-features = ["fake-riot"]
 name = "riot_layer"
 required-features = ["fake-riot"]
 
+[[test]]
+name = "store"
+required-features = ["fake-riot"]
+
 # Runs the presence watcher, which looks up match ids on GLZ; with the fake
 # backend those calls stay on loopback instead of reaching Riot.
 [[test]]

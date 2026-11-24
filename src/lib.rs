@@ -20,6 +20,7 @@ pub mod logging;
 pub mod replay;
 pub mod riot;
 pub mod secret;
+pub mod shop;
 pub mod stats;
 pub mod ui;
 pub mod worker;

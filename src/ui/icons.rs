@@ -34,6 +34,8 @@ pub enum Icon {
     NextRound,
     Map,
     Back,
+    Store,
+    Loadout,
 }
 
 impl Icon {
@@ -71,6 +73,8 @@ impl Icon {
             Icon::NextRound => ph::SKIP_FORWARD,
             Icon::Map => ph::MAP_TRIFOLD,
             Icon::Back => ph::ARROW_LEFT,
+            Icon::Store => ph::STOREFRONT,
+            Icon::Loadout => ph::BACKPACK,
         }
     }
 }

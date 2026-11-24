@@ -81,6 +81,12 @@ pub enum Intent {
         cid: String,
         text: String,
     },
+
+    // ---- your own store and loadout (read-only)
+    /// Daily offers, bundles, night market, accessories and wallet.
+    RefreshStore,
+    /// Equipped skins, buddies, sprays, card/title, account XP, collection.
+    RefreshLoadout,
     Shutdown,
 }
 
@@ -238,6 +244,8 @@ pub enum Update {
         match_id: MatchId,
         result: Result<Arc<crate::replay::MatchReplay>, UserFacingError>,
     },
+    Store(Result<Arc<crate::shop::StoreView>, UserFacingError>),
+    Loadout(Result<Arc<crate::shop::LoadoutView>, UserFacingError>),
     Error(UserFacingError),
 }
 
