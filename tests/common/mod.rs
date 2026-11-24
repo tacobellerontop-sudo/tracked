@@ -183,16 +183,20 @@ fn riot_route(method: &str, path: &str, body: &str) -> Option<serde_json::Value>
                 serde_json::json!([{ "TypeID": item_type, "ItemID": "11111111-0000-4000-8000-000000000001" }])
             }
         }),
-        ("GET", ["personalization", "v2", "players", PUUID, "playerloadout"]) => serde_json::json!({
+        // Live shards retired v2 (404) for v3, so only v3 answers here.
+        ("GET", ["personalization", "v3", "players", PUUID, "playerloadout"]) => serde_json::json!({
             "Subject": PUUID, "Version": 3,
             "Guns": [
                 { "ID": "9c82e19d-4575-0200-1a81-3eacf00cf872", "SkinID": "s1", "SkinLevelID": SKIN_LEVEL_OWNED, "ChromaID": "c1",
                   "CharmInstanceID": "x", "CharmID": "b1", "CharmLevelID": "bl1", "Attachments": [] },
                 { "ID": "29a0cfab-485b-f5d5-779a-b59f85e204a8", "SkinID": "s2", "SkinLevelID": "l2", "ChromaID": "c2", "Attachments": [] }
             ],
-            "Sprays": [{ "EquipSlotID": "slot", "SprayID": "sp1", "SprayLevelID": null }],
+            "ActiveExpressions": [
+                { "TypeID": "d5f120f8-ff8c-4aac-92ea-f2b5acbe9475", "AssetID": "sp1" },
+                { "TypeID": "d5f120f8-ff8c-4aac-92ea-f2b5acbe9475", "AssetID": null }
+            ],
             "Identity": { "PlayerCardID": "card", "PlayerTitleID": "title", "AccountLevel": 123,
-                          "PreferredLevelBorderID": "", "HideAccountLevel": false },
+                          "PreferredLevelBorderID": null, "HideAccountLevel": false },
             "Incognito": false
         }),
         ("GET", ["account-xp", "v1", "players", PUUID]) => serde_json::json!({

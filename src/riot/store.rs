@@ -218,26 +218,65 @@ pub async fn owned(s: &RiotSession, puuid: &str, item_type: &str) -> Result<Vec<
 
 // ------------------------------------------------------------------- loadout
 
+/// `null` → empty string (Riot sends `null` for some unset ids, and
+/// `#[serde(default)]` only covers *missing* fields).
+pub(crate) fn null_str<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    Ok(Option::<String>::deserialize(d)?.unwrap_or_default())
+}
+
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default, rename_all = "PascalCase")]
 pub struct FullLoadout {
     pub guns: Vec<GunLoadout>,
+    /// `playerloadout` v2 only.
     pub sprays: Vec<SprayLoadout>,
+    /// `playerloadout` v3: sprays and flex items on the expression wheel.
+    pub active_expressions: Vec<Expression>,
     pub identity: LoadoutIdentity,
     pub incognito: bool,
+}
+
+impl FullLoadout {
+    /// Equipped spray ids from whichever version Riot answered.
+    pub fn spray_ids(&self) -> Vec<String> {
+        let mut out: Vec<String> = self
+            .sprays
+            .iter()
+            .map(|s| s.spray_id.clone())
+            .chain(
+                self.active_expressions
+                    .iter()
+                    .filter(|e| e.type_id.is_empty() || e.type_id.eq_ignore_ascii_case(ids::SPRAY))
+                    .map(|e| e.asset_id.clone()),
+            )
+            .filter(|s| !s.is_empty())
+            .collect();
+        out.dedup();
+        out
+    }
+
+    /// Equipped flex items (v3 only).
+    pub fn flex_ids(&self) -> Vec<String> {
+        self.active_expressions
+            .iter()
+            .filter(|e| e.type_id.eq_ignore_ascii_case(ids::FLEX))
+            .map(|e| e.asset_id.clone())
+            .filter(|s| !s.is_empty())
+            .collect()
+    }
 }
 
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default, rename_all = "PascalCase")]
 pub struct GunLoadout {
     /// Weapon uuid.
-    #[serde(rename = "ID")]
+    #[serde(rename = "ID", deserialize_with = "null_str")]
     pub id: String,
-    #[serde(rename = "SkinID")]
+    #[serde(rename = "SkinID", deserialize_with = "null_str")]
     pub skin_id: String,
-    #[serde(rename = "SkinLevelID")]
+    #[serde(rename = "SkinLevelID", deserialize_with = "null_str")]
     pub skin_level_id: String,
-    #[serde(rename = "ChromaID")]
+    #[serde(rename = "ChromaID", deserialize_with = "null_str")]
     pub chroma_id: String,
     /// Gun buddy (absent when none is attached).
     #[serde(rename = "CharmID")]
@@ -249,18 +288,37 @@ pub struct GunLoadout {
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default, rename_all = "PascalCase")]
 pub struct SprayLoadout {
-    #[serde(rename = "EquipSlotID")]
+    #[serde(rename = "EquipSlotID", deserialize_with = "null_str")]
     pub equip_slot_id: String,
-    #[serde(rename = "SprayID")]
+    #[serde(rename = "SprayID", deserialize_with = "null_str")]
     pub spray_id: String,
 }
 
-/// `GET /personalization/v2/players/{puuid}/playerloadout`: every equipped
-/// skin, buddy, spray, card and title.
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(default, rename_all = "PascalCase")]
+pub struct Expression {
+    #[serde(rename = "TypeID", deserialize_with = "null_str")]
+    pub type_id: String,
+    #[serde(rename = "AssetID", deserialize_with = "null_str")]
+    pub asset_id: String,
+}
+
+/// Every equipped skin, buddy, spray, card and title.
+///
+/// Riot retired `GET /personalization/v2/players/{puuid}/playerloadout`
+/// (it answers 404 now) for v3, which swaps `Sprays` for
+/// `ActiveExpressions`. v3 is asked first; v2 stays as a fallback for
+/// shards that haven't moved.
 pub async fn loadout(s: &RiotSession, puuid: &str) -> Result<FullLoadout, ApiError> {
     check(puuid)?;
-    s.get(&format!("{}/personalization/v2/players/{puuid}/playerloadout", s.pd()?))
-        .await
+    let pd = s.pd()?;
+    match s.get(&format!("{pd}/personalization/v3/players/{puuid}/playerloadout")).await {
+        Err(ApiError::NotFound) | Err(ApiError::Status(405)) => {
+            s.get(&format!("{pd}/personalization/v2/players/{puuid}/playerloadout"))
+                .await
+        }
+        other => other,
+    }
 }
 
 // ---------------------------------------------------------------- account XP

@@ -550,11 +550,11 @@ pub fn build_loadout(
         incognito: lo.incognito,
         guns,
         sprays: lo
-            .sprays
+            .spray_ids()
             .iter()
-            .filter(|s| !s.spray_id.is_empty())
-            .map(|s| {
-                let i = cos.item(&s.spray_id);
+            .chain(lo.flex_ids().iter())
+            .map(|id| {
+                let i = cos.item(id);
                 (
                     i.map(|i| i.name.clone()).unwrap_or_else(|| "Spray".into()),
                     i.map(|i| i.icon.clone()).unwrap_or_default(),
