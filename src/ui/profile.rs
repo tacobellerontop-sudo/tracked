@@ -26,13 +26,13 @@ pub fn matches_of(state: &AppState, puuid: &str) -> Vec<Arc<MatchDetail>> {
     v
 }
 
-/// Colour for a performance score: green above 600, red below 400.
+/// Colour for a performance score (0–500): gold from 325, green from 275, red at 200 or below.
 pub fn perf_color(perf: f32, p: &Palette) -> Color32 {
-    if perf >= 650.0 {
+    if perf >= 325.0 {
         p.gold
-    } else if perf >= 550.0 {
+    } else if perf >= 275.0 {
         p.win
-    } else if perf <= 400.0 {
+    } else if perf <= 200.0 {
         p.loss
     } else {
         p.text
@@ -42,11 +42,11 @@ pub fn perf_color(perf: f32, p: &Palette) -> Color32 {
 /// A word for a performance score ("Elite", "Great"…).
 pub fn perf_label(perf: f32) -> &'static str {
     match perf as u32 {
-        700.. => "Elite",
-        600..=699 => "Great",
-        520..=599 => "Good",
-        460..=519 => "Average",
-        380..=459 => "Below average",
+        350.. => "Elite",
+        300..=349 => "Great",
+        260..=299 => "Good",
+        230..=259 => "Average",
+        190..=229 => "Below average",
         _ => "Rough",
     }
 }
@@ -109,7 +109,7 @@ pub fn overview_tiles(o: &Overview, p: &Palette) -> Vec<Tile> {
     let has = o.me.matches > 0;
     let dash = || "–".to_string();
     let rel = |me: f32, lobby: f32| crate::stats::relative_delta(me, lobby);
-    let lobby_perf = o.lobby.perf().unwrap_or(500.0);
+    let lobby_perf = o.lobby.perf().unwrap_or(crate::stats::PERF_AVG);
     vec![
         Tile {
             label: "Performance",
@@ -188,7 +188,7 @@ pub fn overview_tiles(o: &Overview, p: &Palette) -> Vec<Tile> {
     ]
 }
 
-/// Area chart of performance scores with the 500 "lobby average" line.
+/// Area chart of performance scores with the 250 "lobby average" line.
 pub fn perf_chart(ui: &mut Ui, height: f32, series: &[(i64, f32)], intro_key: u64) {
     let p = pal(ui.ctx());
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::hover());
@@ -206,9 +206,11 @@ pub fn perf_chart(ui: &mut Ui, height: f32, series: &[(i64, f32)], intro_key: u6
     let t = theme::intro(ui.ctx(), resp.id.with("intro"), intro_key, 0.6);
     let (lo, hi) = series
         .iter()
-        .fold((500.0f32, 500.0f32), |(a, b), (_, v)| (a.min(*v), b.max(*v)));
-    let lo = ((lo - 60.0) / 100.0).floor().max(0.0) * 100.0;
-    let hi = ((hi + 60.0) / 100.0).ceil().min(10.0) * 100.0;
+        .fold((crate::stats::PERF_AVG, crate::stats::PERF_AVG), |(a, b), (_, v)| {
+            (a.min(*v), b.max(*v))
+        });
+    let lo = ((lo - 30.0) / 50.0).floor().max(0.0) * 50.0;
+    let hi = ((hi + 30.0) / 50.0).ceil().min(10.0) * 50.0;
     let plot = Rect::from_min_max(rect.min + vec2(34.0, 8.0), rect.max - vec2(6.0, 20.0));
     let y_of = |v: f32| plot.bottom() - (v - lo) / (hi - lo).max(1.0) * plot.height();
     let x_of = |i: usize| plot.left() + plot.width() * i as f32 / (series.len() - 1) as f32;
@@ -226,10 +228,10 @@ pub fn perf_chart(ui: &mut Ui, height: f32, series: &[(i64, f32)], intro_key: u6
             FontId::proportional(10.0),
             p.faint,
         );
-        v += 100.0;
+        v += 50.0;
     }
     // Lobby average.
-    let avg_y = y_of(500.0);
+    let avg_y = y_of(crate::stats::PERF_AVG);
     let mut x = plot.left();
     while x < plot.right() {
         painter.line_segment(

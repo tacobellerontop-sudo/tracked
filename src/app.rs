@@ -34,8 +34,12 @@ pub enum Screen {
     Store,
     /// Your equipped skins, account level and collection.
     Loadout,
-    /// Agent mastery levels and accolades earned.
+    /// Agent mastery levels (a tab of Agents).
     Mastery,
+    /// Accolades earned (a tab of Agents).
+    Accolades,
+    /// Per-map stats (a tab of Matches).
+    Maps,
     /// Session recap and overall stats.
     Recaps,
     Lookup,

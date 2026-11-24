@@ -36,14 +36,6 @@ pub fn ui(ui: &mut Ui, state: &mut AppState, intents: &IntentTx) {
 
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
-        for (tab, label) in [
-            (MasteryTab::Agents, "Agent mastery"),
-            (MasteryTab::Accolades, "Accolades"),
-        ] {
-            if theme::pill(ui, label, state.mastery_tab == tab).clicked() {
-                state.mastery_tab = tab;
-            }
-        }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if state.older.loading {
                 ui.spinner();
@@ -69,6 +61,19 @@ pub fn ui(ui: &mut Ui, state: &mut AppState, intents: &IntentTx) {
 }
 
 // ------------------------------------------------------------------ agents
+
+/// 12,345 MP.
+fn fmt_mp(v: u32) -> String {
+    let s = v.to_string();
+    let mut out = String::new();
+    for (i, c) in s.chars().enumerate() {
+        if i > 0 && (s.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
 
 fn agents_tab(
     ui: &mut Ui,
@@ -110,10 +115,12 @@ fn agents_tab(
     theme::card(ui, None, |ui| {
         theme::card_title(ui, "How mastery works", None);
         let rules = [
-            ("100", "for every game you play on the agent"),
-            ("+60", "for a win"),
-            ("up to +150", "for performing above the lobby average"),
-            ("+20 to +120", "for each accolade, by rarity"),
+            ("104 MP / min", "for a win"),
+            (
+                "80 MP / min",
+                "for a loss, and for modes outside Competitive, Unrated, Swiftplay, Spike Rush, TDM and Premier",
+            ),
+            ("120 MP / min", "for the match MVP in Competitive"),
         ];
         for (pts, what) in rules {
             ui.horizontal(|ui| {
@@ -123,23 +130,32 @@ fn agents_tab(
         }
         ui.add_space(4.0);
         ui.label(
-            RichText::new(format!(
-                "Levels need 300 points, then 50 more each level. Every five levels is a new tier: {}.",
-                insights::MASTERY_TIERS.join(", ")
-            ))
+            RichText::new(
+                "This follows VALORANT's Agent Mastery: Act levels reset every act (level 1 at 2,000 MP, \
+                 level 10 at 132,400 MP, rewards at 4, 7 and 10), and only games since Patch 13.06 count. \
+                 Riot doesn't share mastery through its API, so Tracked adds it up from the matches it has \
+                 loaded. If your game shows more, load older matches to fill in the rest of this act.",
+            )
             .size(11.5)
             .color(p.faint),
         );
     });
 }
 
+fn level_line(l: &Level) -> String {
+    let t = l.tier();
+    if t.is_empty() {
+        format!("Act level {}", l.level)
+    } else {
+        format!("Act level {} · {t}", l.level)
+    }
+}
+
 pub fn tier_color(level: &Level, p: &Palette) -> Color32 {
     match level.tier_index() {
-        0 => p.weak,
-        1 => Color32::from_rgb(78, 168, 255),
-        2 => p.win,
-        3 => p.accent2,
-        4 => p.accent,
+        0 => Color32::from_rgb(78, 168, 255),
+        1 => p.win,
+        2 => p.accent2,
         _ => p.gold,
     }
 }
@@ -192,16 +208,17 @@ fn agent_hero(ui: &mut Ui, cat: &Catalog, a: &AgentMastery, p: &Palette) -> Opti
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
                         ui.label(
-                            RichText::new(format!("Level {} · {}", a.level.level, a.level.tier()))
+                            RichText::new(level_line(&a.level))
                                 .font(theme::semibold(14.0))
                                 .color(p.text),
                         );
                         ui.label(
                             RichText::new(format!(
-                                "{} / {} points to level {}",
-                                a.level.into,
-                                a.level.needed,
-                                a.level.level + 1
+                                "{} / {} MP to level {} · {} MP lifetime",
+                                fmt_mp(a.level.into),
+                                fmt_mp(a.level.needed),
+                                a.level.level + 1,
+                                fmt_mp(a.points)
                             ))
                             .size(11.5)
                             .color(p.weak),
@@ -312,11 +329,7 @@ fn agent_card(ui: &mut Ui, cat: &Catalog, a: &AgentMastery, selected: bool, p: &
                         .font(theme::semibold(15.0))
                         .color(p.text),
                 );
-                ui.label(
-                    RichText::new(format!("Level {} · {}", a.level.level, a.level.tier()))
-                        .size(11.5)
-                        .color(tint),
-                );
+                ui.label(RichText::new(level_line(&a.level)).size(11.5).color(tint));
             });
         });
         ui.add_space(4.0);
@@ -351,7 +364,7 @@ fn agent_card(ui: &mut Ui, cat: &Catalog, a: &AgentMastery, selected: bool, p: &
         ui.painter().text(
             pos2(top.right(), top.bottom() - 2.0),
             Align2::RIGHT_BOTTOM,
-            format!("{} pts", a.points),
+            format!("{} MP this act", fmt_mp(a.act_points)),
             FontId::proportional(10.5),
             p.faint,
         );

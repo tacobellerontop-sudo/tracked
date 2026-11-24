@@ -313,7 +313,7 @@ fn session_hero(ui: &mut Ui, cat: &Catalog, s: &Session, p: &Palette) {
                 let _ = cat;
                 for (i, perf) in s.perf.iter().enumerate().rev() {
                     let (r, resp) = ui.allocate_exact_size(vec2(10.0, 34.0), Sense::hover());
-                    let h = 8.0 + 26.0 * (*perf as f32 / 1000.0);
+                    let h = 8.0 + 26.0 * (*perf as f32 / stats::PERF_MAX);
                     let bar = Rect::from_min_max(pos2(r.left(), r.bottom() - h), r.max);
                     ui.painter()
                         .rect_filled(bar, CornerRadius::same(3), perf_color(*perf as f32, p));
@@ -519,4 +519,25 @@ fn best_game(ui: &mut Ui, cat: &Catalog, puuid: &str, m: &MatchDetail, perf: u32
         perf_color(perf as f32, &p),
     );
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// The Maps tab of Matches: every map you've played, best first.
+pub fn maps(ui: &mut Ui, state: &mut AppState) {
+    let p = pal(ui.ctx());
+    let Some(career) = state.career.clone() else {
+        empty(ui, state);
+        return;
+    };
+    let owned = profile::matches_of(state, &career.puuid);
+    let refs: Vec<&MatchDetail> = owned.iter().map(|m| m.as_ref()).collect();
+    let maps = insights::maps(&career.puuid, &refs);
+    let cat = state.catalog.clone();
+    theme::card(ui, None, |ui| {
+        theme::card_title(ui, &format!("Maps · {} loaded matches", refs.len()), None);
+        if maps.is_empty() {
+            ui.label(RichText::new("Play a match to see your maps.").color(p.weak));
+        } else {
+            profile::map_rows(ui, &cat, &maps, maps.len());
+        }
+    });
 }
