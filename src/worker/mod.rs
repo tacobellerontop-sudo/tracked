@@ -10,6 +10,7 @@
 
 pub mod demo;
 pub mod friends;
+pub mod shop;
 pub mod social;
 pub mod tasks;
 
@@ -141,7 +142,8 @@ pub async fn run(mut intents: IntentRx, sink: UpdateSink, settings: Settings) {
 
 impl Supervisor {
     fn handle(&mut self, intent: Intent) {
-        if social::handle(&self.ctx, &intent) || friends::handle(&self.ctx, &intent) {
+        if social::handle(&self.ctx, &intent) || friends::handle(&self.ctx, &intent) || shop::handle(&self.ctx, &intent)
+        {
             return;
         }
         let ctx = self.ctx.clone();
@@ -166,6 +168,9 @@ impl Supervisor {
             }
             Intent::RefreshCareer => {
                 tokio::spawn(tasks::refresh_career(ctx));
+            }
+            Intent::LoadOlderMatches { start } => {
+                tokio::spawn(tasks::older_matches(ctx, start));
             }
             Intent::CheckReplayFiles => {
                 tokio::spawn(async move {

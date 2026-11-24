@@ -13,9 +13,9 @@ pub async fn player_mmr(s: &RiotSession, puuid: &str) -> Result<PlayerMmr, ApiEr
 #[derive(Debug, Default, Clone, serde::Deserialize)]
 #[serde(default, rename_all = "PascalCase")]
 pub struct LoadoutIdentity {
-    #[serde(rename = "PlayerCardID")]
+    #[serde(rename = "PlayerCardID", deserialize_with = "super::store::null_str")]
     pub player_card_id: String,
-    #[serde(rename = "PlayerTitleID")]
+    #[serde(rename = "PlayerTitleID", deserialize_with = "super::store::null_str")]
     pub player_title_id: String,
     pub account_level: u32,
     pub hide_account_level: bool,
@@ -27,10 +27,20 @@ pub struct PlayerLoadout {
     pub identity: LoadoutIdentity,
 }
 
-/// `GET /personalization/v2/players/{puuid}/playerloadout` (card, title, level).
+/// Card, title and level from `playerloadout` (v3, falling back to v2;
+/// see [`super::store::loadout`]).
 pub async fn player_loadout(s: &RiotSession, puuid: &str) -> Result<PlayerLoadout, ApiError> {
-    s.get(&format!("{}/personalization/v2/players/{puuid}/playerloadout", s.pd()?))
+    let pd = s.pd()?;
+    match s
+        .get(&format!("{pd}/personalization/v3/players/{puuid}/playerloadout"))
         .await
+    {
+        Err(ApiError::NotFound) | Err(ApiError::Status(405)) => {
+            s.get(&format!("{pd}/personalization/v2/players/{puuid}/playerloadout"))
+                .await
+        }
+        other => other,
+    }
 }
 
 pub async fn competitive_updates(s: &RiotSession, puuid: &str, count: u32) -> Result<CompetitiveUpdates, ApiError> {

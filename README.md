@@ -6,19 +6,39 @@ A lightweight, native desktop companion for VALORANT, written in Rust with
 - Detects the running Riot client and the signed-in player
 - **Live:** game state (menus / agent select / in game) and a lobby roster with
   each player's rank, RR, season win rate, recent form, peak rank and level
-- **Home:** your player card and rank; win rate, K/D, ACS and headshot % compared with
-  the average player in your lobbies; an ACS chart (7D/30D/90D/All); top agents; rank
-  progression; recent ranked activity; recent matches; and what you're doing right now
+- **Home:** your player card and rank; win rate, K/D, **performance score** and headshot %
+  compared with the average player in your lobbies; a performance chart (7D/30D/90D/All); top
+  agents; rank progression; recent ranked activity; recent matches; and what you're doing right now
+- **Recaps:** a recap of every play session (record, net RR, performance, K/D/A, headshot %, best
+  game, accolades and agents played) and your overall stats: performance over time, maps, agents
+  and career totals. **Load older matches** pages further back through your history, and matches
+  already cached on disk are read back so these stats grow over time
+- **Mastery:** a mastery level for every agent (games, wins, performance and accolades earn points;
+  every five levels is a new tier) and an **Accolades** view: 12 accolades (Match MVP, Ace, Clutch
+  Master, Entry King, Headhunter…) with how often and when you last earned each
 - **Matches / Agents:** full match history and per-agent stats (filterable from the search bar).
   Each match shows a **performance score** (0–1000, 500 = the lobby average) that rates you
   against the other nine players on ACS, KAST, ADR, K/D, entry duels and headshot %
-- **Match detail:** both scoreboards (ACS, K/D, ADR, HS%, KAST, first kills/deaths,
+- **Weapons:** kills, headshot %, damage per round and kills per round for every gun you've used,
+  your signature weapon, where your kills come from, and highlights (sharpest aim, hardest hitter).
+  Kills are exact; hits are attributed (hits on a player go to the gun that killed them, the rest
+  to the gun you bought that round), since Riot doesn't record the gun behind each hit.
+  Each match screen also breaks down your weapons for that game
+- **Match detail:** both scoreboards, sorted by performance score (Perf, K/D, ADR, HS%, KAST, first kills/deaths,
   multi-kills, plants/defuses) and a round-by-round strip
-- **Lookup:** another player's rank and recent matches
+- **Players:** another player's profile: rank and peak, performance, win rate, K/D, headshot %,
+  ADR and KAST over their last 10 matches, a performance chart, their agents, maps, accolades and
+  match history
 - **2D replay:** watch any match top-down on the map's minimap, played like a video: all ten
   players move, kills flash in, the spike goes down and gets defused, with a scrubbable timeline,
   0.5×–4× speed, round chips and a live kill feed. Open it from the **Replays** tab, the
   **Replay** button on any match row, or the match screen
+- **Store:** your daily offers with a reset countdown, the Night Market (discounts, and which
+  cards you haven't flipped in the game yet), featured bundles with per-item prices and what you
+  already own, the Kingdom Credits accessory store, and your VP / Radianite / Kingdom Credits
+- **Loadout:** every equipped skin (with variant and rarity), gun buddies, sprays, player card
+  and title; your account level and XP to the next level, when the daily first-win bonus is
+  back, recent XP per match, and how many skins, buddies, sprays, cards and titles you own
 - **Crosshairs:** paste or build a crosshair code, preview it, save presets, copy
 - **Social:** your Riot friends list with live status (in queue, agent select, in a match
   with the score, other Riot games), unread badges and whispers, all through the Riot
@@ -32,10 +52,13 @@ A lightweight, native desktop companion for VALORANT, written in Rust with
 
 ![Home dashboard](docs/screenshots/home.png)
 
-More: [home, lower half](docs/screenshots/home-bottom.png) · [dark mode](docs/screenshots/home-dark.png) ·
-[agents](docs/screenshots/agents.png) · [live lobby](docs/screenshots/live.png) ·
+More: [recaps](docs/screenshots/recaps.png) · [mastery](docs/screenshots/mastery.png) ·
+[accolades](docs/screenshots/accolades.png) · [player profile](docs/screenshots/profile.png) ·
+[home, lower half](docs/screenshots/home-bottom.png) · [dark mode](docs/screenshots/home-dark.png) ·
+[agents](docs/screenshots/agents.png) · [weapons](docs/screenshots/weapons.png) · [live lobby](docs/screenshots/live.png) ·
 [match detail](docs/screenshots/match-detail.png) · [startup check](docs/screenshots/startup.png) ·
-[friends & whispers](docs/screenshots/friends.png) · [2D replay](docs/screenshots/replay.png) · [Replays tab](docs/screenshots/replays.png).
+[friends & whispers](docs/screenshots/friends.png) · [store](docs/screenshots/store.png) ·
+[loadout](docs/screenshots/loadout.png) · [2D replay](docs/screenshots/replay.png) · [Replays tab](docs/screenshots/replays.png).
 Screenshots are from `--demo` mode with synthetic data and no artwork; in normal use your
 player card, agent, map and rank art load from valorant-api.com.
 
@@ -143,7 +166,7 @@ The replay is rebuilt from the match-details data that every tracker uses
 each kill, plant and defuse**. Playback is smooth: between those moments each player glides
 along a curve through their recorded positions. That in-between movement is an estimate
 for viewing, not tracked data; at every kill, plant and defuse the positions are exact. It
-is not VALORANT's own replay files (third parties can't access those).
+doesn't come from VALORANT's own replay files (their movement data is encrypted).
 Map images and calibration come from valorant-api.com; match data is cached on disk after
 the first view. Deathmatch-style modes have no replay. To check it against your own matches:
 
@@ -152,15 +175,36 @@ riot-probe --replay            # your latest match: prints round 1's kills, writ
 riot-probe --replay <matchId>  # a specific match
 ```
 
-**Downloaded replays (work in progress).** VALORANT can download a match's replay to your PC
-(`%LOCALAPPDATA%\VALORANT\Saved\Demos`, `.vrf`). Those files hold real movement, but their
-format is undocumented. Tracked notices when a match has one, and **Settings → Replay files →
-Check replay files** (or `riot-probe --vrf`) reports how the files are laid out, so a parser can
-be built. It only reads the files on disk, never the game. Until then, playback stays smoothed.
+**Downloaded replays.** VALORANT can download a match's replay to your PC
+(`%LOCALAPPDATA%\VALORANT\Saved\Demos`, `.vrf`). When the match you open has one, Tracked
+reads it and adds **every ability object** (smokes, walls, traps, turrets, mollies, …) and
+**every dropped weapon** to the 2D replay, at their exact spot, from the moment they appear
+until they're destroyed or picked up. Player movement in those files is encrypted, so players
+still move the smoothed way. It only reads the files on disk, never the game.
+**Settings → Replay files → Check replay files** (or `riot-probe --vrf`) reports how the files
+are laid out.
 
 `replay-check.png` is the real minimap with valorant-api's named callouts (white), every
 plant in the match (yellow) and the players at round 1's first kill. If the white dots sit in
 their areas and the yellow ones on the sites, the coordinate transform is right.
+
+## Store & loadout
+
+Both come from your own account, the same way the VALORANT client gets them: the lockfile gives
+the local API's port and password, the local API hands out your access and entitlement tokens,
+and those are sent only to Riot's own player-data host (`pd.<shard>.a.pvp.net`):
+
+| What | Riot endpoint |
+| --- | --- |
+| Daily offers, bundles, Night Market, accessory store | `POST /store/v3/storefront/{puuid}` (empty body; falls back to `GET /store/v2/…`) |
+| VP / Radianite / Kingdom Credits | `GET /store/v1/wallet/{puuid}` |
+| What you own (skins, buddies, sprays, cards, titles) | `GET /store/v1/entitlements/{puuid}/{itemType}` |
+| Equipped skins, buddies, sprays, card, title | `GET /personalization/v2/players/{puuid}/playerloadout` |
+| Level, XP, first-win bonus, recent XP | `GET /account-xp/v1/players/{puuid}` |
+
+Item names and artwork come from valorant-api.com, loaded the first time you open either screen.
+It's **read-only**: Tracked can't buy anything or change your loadout. The store refreshes
+itself when the daily offers (or anything else) roll over.
 
 ## Riot friends & whispers (built in)
 

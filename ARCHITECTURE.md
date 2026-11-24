@@ -18,7 +18,7 @@ app is split into two halves joined by two channels (`src/ipc.rs`):
 
 - **`Intent`** (UI → worker, `tokio::mpsc::UnboundedSender`): one variant per user
   action or background need: `Bootstrap`, `RefreshLiveMatch`, `RefreshCareer`,
-  `LoadMatchDetails`, `LookupPlayer`, `LookupPuuid`, `ProbePartyMmr`, `SaveSettings`,
+  `LoadMatchDetails`, `LoadOlderMatches`, `LookupPlayer`, `LookupPuuid`, `ProbePartyMmr`, `SaveSettings`,
   `CheckForUpdates`, `Shutdown`.
 - **`Update`** (worker → UI, `std::sync::mpsc::Sender` wrapped in `UpdateSink`, which
   calls `egui::Context::request_repaint()` after each push): `ClientStatus`, `Content`,
@@ -41,6 +41,8 @@ The original Tauri command list maps onto this as follows:
 | `tracker_match_details`, `tracker_match_summary` | `Intent::LoadMatchDetails` → `Update::MatchDetails` |
 | `tracker_profile` | `Intent::LookupPlayer` / `LookupPuuid` → `Update::PlayerLookup` |
 | `settings_get` / `settings_set` | `config::load` at startup / `Intent::SaveSettings` |
+| (new) store, wallet | `Intent::RefreshStore` → `Update::Store` |
+| (new) loadout, account XP, collection | `Intent::RefreshLoadout` → `Update::Loadout` |
 
 ## The Riot connection layer (`riot/`)
 
@@ -165,10 +167,16 @@ other. `tests/social_e2e.rs` runs the real worker against it in-process.
 | `riot/pd.rs` | MMR, competitive updates, history, details, rank snapshot, rank probe |
 | `riot/glz.rs` | party / pregame / core-game → `LiveMatch` |
 | `riot/presence.rs` | presence blob decode |
+| `riot/store.rs` | your storefront, wallet, entitlements, full loadout, account XP (read-only PD calls) |
+| `content/cosmetics.rs` | skin / chroma / buddy / spray / card / title / bundle / currency names and art (fetched on first use) |
+| `shop.rs` | raw store + loadout payloads joined with cosmetics → `StoreView` / `LoadoutView` |
+| `worker/shop.rs` | `RefreshStore` / `RefreshLoadout` intents, plus the `--demo` store and loadout |
 | `replay/mod.rs` | 2D replay model and `from_raw` / `build_round` (frames per round, dead set, feed) |
 | `replay/fetch.rs` | match-details serde models (valapidocs field names) + fetch |
 | `replay/timeline.rs` | continuous playback: per-player tracks, curve between recorded positions, poses at any time |
 | `replay/calibrate.rs` | `MapCal`, `world_to_norm` (note the x/y swap), facing vectors |
+| `replay/vrf.rs` | downloaded `.vrf` replays: container, chunks, Oodle blocks, structure report |
+| `replay/vrf_spawns.rs` | `.vrf` network stream: frames → packets → bunches → actor spawns (abilities, drops) and `attach` to rounds; payloads are encrypted and skipped |
 | `riot/chat.rs` | local chat API: friends, requests, conversations, history, send; friend status decode |
 | `riot/names.rs` | batched PUUID → Riot ID with cache |
 | `riot/match_stats.rs` | raw match → `MatchDetail` with derived stats (KAST, trades, clutches…) |

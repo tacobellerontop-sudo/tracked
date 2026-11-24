@@ -229,7 +229,7 @@ pub fn match_table(
                     format!("{} / {} / {}", s.kills, s.deaths, s.assists),
                     p.text,
                 ),
-                ("ACS", format!("{:.0}", s.acs()), p.text),
+                ("KAST", format!("{:.0}%", s.kast_pct()), p.text),
                 ("ADR", format!("{:.0}", s.adr()), p.text),
                 ("HS%", format!("{:.0}%", s.hs_pct()), p.text),
             ];

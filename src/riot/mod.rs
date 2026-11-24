@@ -25,6 +25,7 @@ pub mod presence;
 pub mod region;
 pub mod session;
 pub mod state;
+pub mod store;
 pub mod tls;
 pub mod version;
 

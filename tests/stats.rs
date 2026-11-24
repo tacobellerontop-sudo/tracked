@@ -188,3 +188,72 @@ fn performance_score_centres_on_the_lobby() {
     let total: f32 = tracked::stats::PERFORMANCE_WEIGHTS.iter().map(|w| w.1).sum();
     assert!((total - 1.0).abs() < 1e-6);
 }
+
+const VANDAL: &str = "9c82e19d-4575-0200-1a81-3eacf00cf872";
+const SHERIFF: &str = "e336c6b8-418d-9340-d77f-7a9e4cfe0702";
+
+/// Per-weapon kills are exact; hits on a victim go to the gun that killed
+/// them, other hits to the gun carried into the round.
+#[test]
+fn weapon_stats() {
+    let k = |t: u64, killer: &str, victim: &str, ty: &str, item: &str| {
+        json!({ "roundTime": t, "killer": killer, "victim": victim, "assistants": [],
+                "finishingDamage": { "damageType": ty, "damageItem": item } })
+    };
+    let eco = |w: &str| json!({ "weapon": w, "loadoutValue": 3900 });
+    let raw: RawMatch = serde_json::from_value(json!({
+        "matchInfo": { "matchId": "w1", "isCompleted": true },
+        "players": [
+            { "subject": "A", "teamId": "Red" }, { "subject": "B", "teamId": "Blue" },
+            { "subject": "C", "teamId": "Blue" }, { "subject": "D", "teamId": "Blue" }
+        ],
+        "teams": [],
+        "roundResults": [
+            { "roundNum": 0, "winningTeam": "Red", "playerStats": [
+                { "subject": "A", "economy": eco(VANDAL),
+                  "kills": [k(1000, "A", "B", "Weapon", &VANDAL.to_uppercase()),
+                            k(2000, "A", "C", "Weapon", SHERIFF),
+                            k(3000, "A", "D", "Ability", "Ultimate")],
+                  // B: headshots only (headshot kill). C: killed with the Sheriff.
+                  // D: killed by an ability, so the hits count for the carried Vandal.
+                  "damage": [dmg("B", 150, 1, 0, 0), dmg("C", 100, 1, 1, 0), dmg("D", 40, 0, 1, 0)] }
+            ] },
+            { "roundNum": 1, "winningTeam": "Red", "playerStats": [
+                // No economy data: hits go to the only gun A killed with this round.
+                { "subject": "A", "kills": [k(1000, "A", "B", "Melee", ""),
+                                            k(1500, "A", "C", "Weapon", SHERIFF)],
+                  "damage": [dmg("B", 20, 0, 0, 1), dmg("C", 160, 1, 0, 0)] }
+            ] }
+        ]
+    }))
+    .unwrap();
+    let m = normalize(&raw);
+    let a = &m.player("A").unwrap().stats.weapons;
+    let get = |id: &str| a.iter().find(|w| w.weapon_id == id).unwrap();
+
+    let sheriff = get(SHERIFF);
+    assert_eq!((sheriff.kills, sheriff.headshot_kills, sheriff.rounds), (2, 1, 0));
+    assert_eq!((sheriff.damage, sheriff.headshots, sheriff.bodyshots), (260, 2, 1));
+
+    let vandal = get(VANDAL);
+    assert_eq!((vandal.kills, vandal.headshot_kills, vandal.rounds), (1, 1, 1));
+    assert_eq!(
+        (vandal.damage, vandal.headshots, vandal.bodyshots, vandal.legshots),
+        (190, 1, 1, 0)
+    );
+
+    let melee = get(tracked::content::weapons::MELEE);
+    assert_eq!((melee.kills, melee.damage), (1, 20));
+    let abilities = get(tracked::content::weapons::ABILITIES);
+    assert_eq!((abilities.kills, abilities.damage), (1, 0));
+
+    // Most kills first; ties by damage.
+    assert_eq!(a[0].weapon_id, SHERIFF);
+    assert_eq!(a[1].weapon_id, VANDAL);
+
+    let totals = tracked::stats::weapons("A", &[&m, &m]);
+    assert_eq!(totals[0].stat.kills, 4);
+    assert_eq!(totals[0].matches, 2);
+    assert!((totals[0].kill_share - 40.0).abs() < 0.01);
+    assert_eq!(totals[1].damage_per_round(), Some(190.0));
+}

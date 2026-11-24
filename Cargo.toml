@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "tracked"
-version = "0.3.2"
+version = "0.4.0"
 edition = "2021"
 description = "Lightweight, unofficial VALORANT companion (Riot local API + egui)"
 license = "MIT"
@@ -35,6 +35,10 @@ required-features = ["fake-riot"]
 
 [[test]]
 name = "riot_layer"
+required-features = ["fake-riot"]
+
+[[test]]
+name = "store"
 required-features = ["fake-riot"]
 
 # Runs the presence watcher, which looks up match ids on GLZ; with the fake

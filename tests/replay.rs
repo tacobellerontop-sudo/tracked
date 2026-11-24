@@ -301,3 +301,59 @@ fn downloaded_replays_are_matched_by_id() {
     assert!(vrf::check_all(None).contains("replay file check"));
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn replay_file_items_land_in_their_round_on_the_api_clock() {
+    use tracked::replay::vrf_spawns::{attach, Spawn, Stream};
+    use tracked::replay::ItemKind;
+    let mut replay = from_raw(&fixture());
+    let spawn = |t_ms, end_ms, arch: &str, pkg: &str| Spawn {
+        t_ms,
+        archetype: arch.into(),
+        package: pkg.into(),
+        pos: [100.0, -200.0, 50.0],
+        end_ms,
+    };
+    let smoke = (
+        "Default__GameObject_Smonk_NewSmoke_C",
+        "/Game/Characters/Smonk/S0/Ability_E/GameObject_Smonk_NewSmoke",
+    );
+    let drop = (
+        "Default__EquippableGroundPickup_C",
+        "/Game/Weapons/WeaponPickups/EquippableGroundPickup",
+    );
+    // Round 0 starts at 10 s of replay time; the file's clock runs 30 s
+    // ahead of the API's round clock (buy phase). Kills at 22/47/62 s.
+    let stream = Stream {
+        round_starts: vec![10_000, 200_000],
+        deaths: vec![62_000, 87_000, 102_000],
+        spawns: vec![
+            spawn(55_000, Some(70_000), smoke.0, smoke.1),
+            spawn(80_000, None, drop.0, drop.1),
+            spawn(15_000, Some(20_000), smoke.0, smoke.1), // gone before round time 0
+            spawn(
+                90_000,
+                None,
+                "Default__AssaultRifle_AK_C",
+                "/Game/Equippables/Guns/Rifles/AK/AssaultRifle_AK",
+            ),
+            spawn(210_000, None, drop.0, drop.1), // next round
+        ],
+        ..Default::default()
+    };
+    attach(&mut replay, &stream);
+    let r0 = &replay.rounds[0].items;
+    assert_eq!(r0.len(), 2, "{r0:?}");
+    assert_eq!((r0[0].t, r0[0].end), (15_000.0, Some(30_000.0)));
+    assert!(matches!(&r0[0].kind, ItemKind::Ability { agent, .. } if agent == "Smonk"));
+    assert_eq!(r0[0].pos, Loc { x: 100.0, y: -200.0 });
+    assert_eq!(
+        (r0[1].kind.clone(), r0[1].t, r0[1].end),
+        (ItemKind::DroppedWeapon, 40_000.0, None)
+    );
+    // Round 1 has no kills: it uses the match's typical offset.
+    let r1 = &replay.rounds[1].items;
+    assert_eq!(r1.len(), 1);
+    // 10 s into the file's round minus the 30 s offset: clamped to round start.
+    assert_eq!(r1[0].t, 0.0);
+}

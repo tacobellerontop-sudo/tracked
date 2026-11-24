@@ -21,7 +21,7 @@ use crate::riot::{account, glz, pd, RiotId, Session};
 /// How many recent matches the career screen loads details for.
 pub const CAREER_MATCHES: u32 = 20;
 /// How many recent matches a lookup loads.
-pub const LOOKUP_MATCHES: u32 = 5;
+pub const LOOKUP_MATCHES: u32 = 10;
 /// Rank probes are reused for this long (ranks change at most once a game).
 pub const PROBE_TTL: Duration = Duration::from_secs(10 * 60);
 
@@ -208,7 +208,94 @@ async fn career_inner(ctx: &Arc<Ctx>) -> Result<(), ApiError> {
     for t in tasks {
         let _ = t.await;
     }
+    load_archive(ctx, &s.puuid, ARCHIVE_MATCHES).await;
     Ok(())
+}
+
+/// At most this many older matches are read back from the disk cache.
+pub const ARCHIVE_MATCHES: usize = 300;
+
+/// Publish older matches of `puuid` that the disk cache already holds, so
+/// mastery, recaps and overall stats grow beyond the last
+/// [`CAREER_MATCHES`] games without asking Riot again.
+pub async fn load_archive(ctx: &Arc<Ctx>, puuid: &str, max: usize) {
+    let Some(dir) = ctx.cache_dir.as_ref().map(|d| d.join("matches")) else {
+        return;
+    };
+    let puuid = puuid.to_string();
+    let found = tokio::task::spawn_blocking(move || {
+        let mut files: Vec<(std::time::SystemTime, std::path::PathBuf)> = std::fs::read_dir(&dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
+            .map(|e| {
+                (
+                    e.metadata().and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH),
+                    e.path(),
+                )
+            })
+            .collect();
+        files.sort_by_key(|f| std::cmp::Reverse(f.0));
+        let needle = puuid.as_bytes();
+        let mut out = Vec::new();
+        for (_, path) in files {
+            if out.len() >= max {
+                break;
+            }
+            let Ok(bytes) = std::fs::read(&path) else { continue };
+            if !bytes.windows(needle.len()).any(|w| w == needle) {
+                continue;
+            }
+            if let Ok(d) = serde_json::from_slice::<MatchDetail>(&bytes) {
+                if d.schema >= MatchDetail::SCHEMA && d.player(&puuid).is_some() {
+                    out.push(d);
+                }
+            }
+        }
+        out
+    })
+    .await
+    .unwrap_or_default();
+    for d in found {
+        let id = d.info.match_id.clone();
+        if ctx.matches.lock().unwrap().contains_key(&id) {
+            continue;
+        }
+        let d = Arc::new(d);
+        ctx.matches.lock().unwrap().insert(id.clone(), d.clone());
+        ctx.sink.send(Update::MatchDetails(id, d));
+    }
+}
+
+/// One page of older history for the signed-in player.
+pub async fn older_matches(ctx: Arc<Ctx>, start: u32) {
+    let page = 20;
+    let r = async {
+        let s = ctx.session()?;
+        let h = pd::match_history(&s, &s.puuid, start, start + page).await?;
+        let n = h.history.len() as u32;
+        for e in &h.history {
+            if let Err(e) = load_match(&ctx, &e.match_id).await {
+                tracing::debug!("older match failed: {e}");
+            }
+        }
+        Ok::<u32, ApiError>(n)
+    }
+    .await;
+    match r {
+        Ok(n) => ctx.sink.send(Update::OlderMatches {
+            next: start + n,
+            exhausted: n < page,
+        }),
+        Err(e) => {
+            ctx.report(&e);
+            ctx.sink.send(Update::OlderMatches {
+                next: start,
+                exhausted: false,
+            });
+        }
+    }
 }
 
 /// Player card art, title and level for the profile banner.
@@ -270,11 +357,28 @@ pub async fn load_replay(ctx: &Arc<Ctx>, id: &str) -> Result<Arc<crate::replay::
     let mut replay = crate::replay::from_raw(&raw);
     // Looking for VALORANT's downloaded replay reads the local Demos folder.
     let match_id = id.to_string();
-    replay.replay_file = tokio::task::spawn_blocking(move || crate::replay::vrf::find_for_match(&match_id))
-        .await
-        .ok()
-        .flatten()
-        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()));
+    // Its abilities and dropped weapons are read in the background too.
+    let file = tokio::task::spawn_blocking(move || {
+        let path = crate::replay::vrf::find_for_match(&match_id)?;
+        let stream = crate::replay::vrf_spawns::read(&path)
+            .map_err(|e| tracing::warn!(error = %e, "couldn't read the replay file"))
+            .ok();
+        Some((path, stream))
+    })
+    .await
+    .ok()
+    .flatten();
+    if let Some((path, stream)) = file {
+        replay.replay_file = path.file_name().map(|n| n.to_string_lossy().into_owned());
+        if let Some(s) = stream {
+            tracing::debug!(
+                spawns = s.spawns.len(),
+                rounds = s.round_starts.len(),
+                "replay file read"
+            );
+            crate::replay::vrf_spawns::attach(&mut replay, &s);
+        }
+    }
     if let Some(r) = replay.rounds.first() {
         tracing::debug!(
             match_id = id,
@@ -298,7 +402,10 @@ pub async fn load_match(ctx: &Arc<Ctx>, id: &str) -> Result<Arc<MatchDetail>, Ap
     let mut detail: Option<MatchDetail> = None;
     if let Some(path) = &disk {
         if let Ok(bytes) = tokio::fs::read(path).await {
-            detail = serde_json::from_slice(&bytes).ok();
+            // Caches from older versions lack newer stats: fetch those again.
+            detail = serde_json::from_slice::<MatchDetail>(&bytes)
+                .ok()
+                .filter(|d| d.schema >= MatchDetail::SCHEMA);
         }
     }
     let detail = match detail {

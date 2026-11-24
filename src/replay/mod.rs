@@ -2,13 +2,16 @@
 //!
 //! Riot's match data only records where everyone stood (and which way they
 //! faced) at the instant of each kill, plant and defuse. A replay is therefore
-//! a sequence of freeze-frame snapshots per round, not continuous movement and
-//! not VALORANT's own replay files (which third parties can't access).
+//! a sequence of freeze-frame snapshots per round, not continuous movement.
+//! When VALORANT's own replay file for the match is on disk, the ability
+//! objects and dropped weapons it records are added on top (see
+//! [`vrf_spawns`]); its player movement is encrypted and isn't used.
 
 pub mod calibrate;
 pub mod fetch;
 pub mod timeline;
 pub mod vrf;
+pub mod vrf_spawns;
 
 use std::collections::{HashMap, HashSet};
 
@@ -88,6 +91,29 @@ pub struct Marker {
     pub by: Option<String>,
 }
 
+/// Something that appeared on the map, read from the replay file.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ItemKind {
+    /// An ability object (smoke, wall, trap, turret, …). `agent` is the
+    /// agent's internal name as valorant-api's `developerName` has it.
+    Ability {
+        agent: String,
+        name: String,
+    },
+    DroppedWeapon,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MapItem {
+    pub kind: ItemKind,
+    pub pos: Loc,
+    /// Round time it appeared (same clock as `Frame::t_ms`).
+    pub t: f32,
+    /// Round time it was destroyed (a smoke fading, a weapon picked up);
+    /// `None` = until the round ends.
+    pub end: Option<f32>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Frame {
     pub t_ms: u32,
@@ -118,6 +144,8 @@ pub struct RoundReplay {
     pub plant_site: Option<String>,
     /// Continuous playback of this round (see [`timeline`]).
     pub timeline: timeline::RoundTimeline,
+    /// Ability objects and dropped weapons from the replay file, in time order.
+    pub items: Vec<MapItem>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -132,8 +160,7 @@ pub struct MatchReplay {
     pub rounds: Vec<RoundReplay>,
     pub availability: Availability,
     /// File name of VALORANT's downloaded replay (`.vrf`) for this match, if
-    /// one is on disk. Exact movement will come from it once its format is
-    /// decoded; until then playback is smoothed between recorded moments.
+    /// one is on disk. Its abilities and drops fill `RoundReplay::items`.
     pub replay_file: Option<String>,
 }
 
@@ -392,6 +419,7 @@ pub fn build_round(r: &RoundRaw, team_of: &HashMap<&str, &PlayerMeta>) -> RoundR
         feed,
         plant_site: r.plant_site.clone().filter(|s| !s.is_empty()),
         timeline: timeline::RoundTimeline::default(),
+        items: Vec::new(),
     };
     round.timeline = timeline::RoundTimeline::build(&round);
     round

@@ -14,6 +14,12 @@ const BASE: &str = "https://valorant-api.com";
 pub struct Agent {
     pub name: String,
     pub icon: String,
+    /// Riot's internal name (e.g. "Smonk"), as replay files use it.
+    pub dev_name: String,
+    /// "Duelist", "Initiator", "Controller", "Sentinel" (may be empty).
+    pub role: String,
+    /// Full-body portrait (transparent PNG, loaded on demand), may be empty.
+    pub portrait: String,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -33,6 +39,8 @@ pub struct Weapon {
     pub name: String,
     /// Kill-feed silhouette.
     pub icon: String,
+    /// Side-on artwork, for the Weapons page.
+    pub display_icon: String,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -66,6 +74,14 @@ impl Catalog {
         self.agents.get(&id.to_ascii_lowercase())
     }
 
+    /// Agent UUID (lowercase) and info by Riot's internal name.
+    pub fn agent_by_dev_name(&self, dev: &str) -> Option<(&str, &Agent)> {
+        self.agents
+            .iter()
+            .find(|(_, a)| a.dev_name.eq_ignore_ascii_case(dev))
+            .map(|(id, a)| (id.as_str(), a))
+    }
+
     pub fn map(&self, id: &str) -> Option<&MapInfo> {
         self.maps.get(id).or_else(|| self.maps.get(&id.to_ascii_lowercase()))
     }
@@ -79,6 +95,15 @@ impl Catalog {
 
     pub fn weapon(&self, id: &str) -> Option<&Weapon> {
         self.weapons.get(&id.to_ascii_lowercase())
+    }
+
+    /// Display name for a weapon id: the catalog's, then the built-in table's.
+    pub fn weapon_name(&self, id: &str) -> String {
+        self.weapon(id)
+            .map(|w| w.name.clone())
+            .filter(|n| !n.is_empty())
+            .or_else(|| super::weapons::known_name(id).map(str::to_string))
+            .unwrap_or_else(|| "Unknown weapon".into())
     }
 
     pub fn tier(&self, tier: u32) -> Option<&Tier> {
@@ -144,6 +169,9 @@ pub async fn fetch_catalog(http: &reqwest::Client) -> Result<Catalog, ApiError> 
             Agent {
                 name: str_of(&a, "displayName"),
                 icon: str_of(&a, "displayIconSmall"),
+                dev_name: str_of(&a, "developerName"),
+                role: a.get("role").map(|r| str_of(r, "displayName")).unwrap_or_default(),
+                portrait: str_of(&a, "fullPortrait"),
             },
         );
     }
@@ -164,6 +192,7 @@ pub async fn fetch_catalog(http: &reqwest::Client) -> Result<Catalog, ApiError> 
             Weapon {
                 name: str_of(&w, "displayName"),
                 icon: str_of(&w, "killStreamIcon"),
+                display_icon: str_of(&w, "displayIcon"),
             },
         );
     }

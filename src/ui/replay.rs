@@ -1,7 +1,9 @@
 //! 2D replay screen: the match drawn top-down on the map's minimap and
 //! played like a video, with round chips, a scrubbable timeline and a kill
 //! feed. Positions are exact at each kill / plant / defuse and smoothed in
-//! between (see `replay::timeline`). Everything is painted with `Painter`.
+//! between (see `replay::timeline`). Ability objects and dropped weapons
+//! from VALORANT's replay file, when there is one, are drawn exactly where
+//! and while they existed. Everything is painted with `Painter`.
 
 use std::sync::Arc;
 
@@ -15,7 +17,7 @@ use crate::content::Catalog;
 use crate::ipc::IntentTx;
 use crate::replay::calibrate::{facing, world_to_norm, MapCal};
 use crate::replay::timeline::RoundTimeline;
-use crate::replay::{Availability, Frame, FrameKind, Loc, MatchReplay, RoundReplay};
+use crate::replay::{Availability, Frame, FrameKind, ItemKind, Loc, MapItem, MatchReplay, RoundReplay};
 
 const FEED_W: f32 = 300.0;
 const ALLY: Color32 = Color32::from_rgb(38, 186, 168);
@@ -148,8 +150,8 @@ fn header(ui: &mut Ui, state: &mut AppState, p: &Palette) {
     // Which movement source this replay uses.
     let note = match data.as_ref().and_then(|m| m.replay_file.as_deref()) {
         Some(file) => format!(
-            "Movement: smoothed between recorded moments. Found your downloaded replay ({file}); \
-             exact movement from replay files isn't decoded yet."
+            "Abilities and dropped weapons: exact, from your downloaded replay ({file}). \
+             Player movement: smoothed between recorded moments (the replay file's movement is encrypted)."
         ),
         None => "Movement: smoothed between recorded moments (Riot's match data only has positions at each kill, \
                  plant and defuse). Not tracked."
@@ -450,6 +452,7 @@ fn draw_moment(
     let scale = (rect.width() / 640.0).clamp(0.75, 1.4);
     let r = 11.0 * scale;
     let poses = tl.poses_at(t);
+    let item_tip = draw_items(ui, painter, round, t, m, cat, cal, rect, mine, scale, hover);
     let screen_of = |puuid: &str| {
         poses
             .iter()
@@ -570,6 +573,13 @@ fn draw_moment(
             }
         }
     }
+    if hovered.is_none() {
+        if let Some(text) = item_tip {
+            egui::show_tooltip_at_pointer(ui.ctx(), ui.layer_id(), egui::Id::new("replay-item"), |ui| {
+                ui.label(text);
+            });
+        }
+    }
     if let Some(pl) = hovered {
         let name = m
             .player(pl.puuid)
@@ -581,6 +591,94 @@ fn draw_moment(
             ui.label(text);
         });
     }
+}
+
+/// Team of the only player on `agent` (Riot's internal name), if just one
+/// player picked it.
+fn agent_team<'a>(m: &'a MatchReplay, cat: &Catalog, agent: &str) -> Option<&'a str> {
+    let (id, _) = cat.agent_by_dev_name(agent)?;
+    let mut on = m.players.iter().filter(|p| p.agent.eq_ignore_ascii_case(id));
+    match (on.next(), on.next()) {
+        (Some(p), None) => Some(p.team.as_str()),
+        _ => None,
+    }
+}
+
+fn item_alive(it: &MapItem, t: f32) -> bool {
+    it.t <= t && it.end.is_none_or(|e| t < e)
+}
+
+/// Ability objects (agent icon in a team-coloured ring) and dropped weapons
+/// (small diamonds) that exist at time `t`. Returns the hovered one's label.
+#[allow(clippy::too_many_arguments)]
+fn draw_items(
+    ui: &Ui,
+    painter: &egui::Painter,
+    round: &RoundReplay,
+    t: f32,
+    m: &MatchReplay,
+    cat: &Catalog,
+    cal: &MapCal,
+    rect: Rect,
+    mine: &str,
+    scale: f32,
+    hover: Option<Pos2>,
+) -> Option<String> {
+    let mut tip = None;
+    for it in round.items.iter().filter(|it| item_alive(it, t)) {
+        let c = to_screen(&it.pos, cal, rect);
+        let fade = ((t - it.t) / 300.0).clamp(0.0, 1.0);
+        match &it.kind {
+            ItemKind::DroppedWeapon => {
+                let s = 4.5 * scale;
+                let pts = vec![c + vec2(0.0, -s), c + vec2(s, 0.0), c + vec2(0.0, s), c + vec2(-s, 0.0)];
+                painter.add(egui::Shape::convex_polygon(
+                    pts,
+                    Color32::from_gray(230).gamma_multiply(0.9 * fade),
+                    Stroke::new(1.5_f32, Color32::from_black_alpha((160.0 * fade) as u8)),
+                ));
+                if hover.is_some_and(|h| h.distance(c) <= s + 3.0) {
+                    tip = Some("Dropped weapon".to_string());
+                }
+            }
+            ItemKind::Ability { agent, name } => {
+                let r = 7.0 * scale;
+                let color = match agent_team(m, cat, agent) {
+                    Some(team) => team_color(team, mine),
+                    None => Color32::from_gray(200),
+                };
+                painter.circle_filled(c, r * 1.9, color.gamma_multiply(0.16 * fade));
+                painter.circle_filled(c, r + 1.5, Color32::from_black_alpha((170.0 * fade) as u8));
+                painter.circle_stroke(c, r, Stroke::new(1.8_f32, color.gamma_multiply(fade)));
+                let info = cat.agent_by_dev_name(agent).map(|(_, a)| a);
+                match info.map(|a| a.icon.as_str()).filter(|u| !u.is_empty()) {
+                    Some(uri) => {
+                        let ir = Rect::from_center_size(c, vec2(2.0 * r - 3.0, 2.0 * r - 3.0));
+                        egui::Image::new(uri)
+                            .tint(Color32::WHITE.gamma_multiply(fade))
+                            .corner_radius(CornerRadius::same((r - 1.5) as u8))
+                            .paint_at(ui, ir);
+                    }
+                    None => {
+                        painter.circle_filled(c, r - 1.5, color.gamma_multiply(0.45 * fade));
+                        let letter = info.and_then(|a| a.name.chars().next()).unwrap_or('•');
+                        painter.text(
+                            c,
+                            Align2::CENTER_CENTER,
+                            letter,
+                            theme::semibold(9.0 * scale),
+                            Color32::WHITE.gamma_multiply(fade),
+                        );
+                    }
+                }
+                if hover.is_some_and(|h| h.distance(c) <= r + 3.0) {
+                    let who = info.map(|a| a.name.as_str()).unwrap_or(agent);
+                    tip = Some(format!("{who} · {name}"));
+                }
+            }
+        }
+    }
+    tip
 }
 
 /// Diamond at the plant (yellow) or defuse (teal) spot, with the site letter.
@@ -869,7 +967,7 @@ fn feed(ui: &mut Ui, state: &mut AppState, m: &MatchReplay, cat: &Catalog, mine:
         state.replay.playing = true;
     }
     ui.add_space(10.0);
-    legend(ui, p);
+    legend(ui, p, !round.items.is_empty());
 }
 
 /// A kill-feed line: time, frame to jump to, and either a kill or a spike event.
@@ -880,7 +978,7 @@ type FeedRow<'a> = (
     Option<&'a Frame>,
 );
 
-fn legend(ui: &mut Ui, p: &Palette) {
+fn legend(ui: &mut Ui, p: &Palette, items: bool) {
     let item = |ui: &mut Ui, color: Color32, label: &str| {
         let (r, _) = ui.allocate_exact_size(vec2(10.0, 10.0), Sense::hover());
         ui.painter().circle_filled(r.center(), 5.0, color);
@@ -892,6 +990,13 @@ fn legend(ui: &mut Ui, p: &Palette) {
         item(ui, SPIKE, "Spike");
         ui.label(RichText::new("x = dead · white ring = killer").size(11.0).color(p.weak));
     });
+    if items {
+        ui.label(
+            RichText::new("Small agent icons = abilities on the map · ◆ = dropped weapon (from the replay file)")
+                .size(11.0)
+                .color(p.weak),
+        );
+    }
     ui.label(
         RichText::new("Space play · ←/→ kills · ↑/↓ rounds · drag the timeline to scrub")
             .size(10.5)

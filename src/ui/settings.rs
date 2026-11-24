@@ -6,8 +6,6 @@ use crate::config::{RendererPref, Theme, MAX_POLL_SECS, MIN_POLL_SECS};
 use crate::ipc::{Intent, IntentTx, UpdateStatus};
 
 pub fn ui(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
-    ui.heading("Settings");
-    ui.add_space(8.0);
     let before = state.settings.clone();
 
     egui::Grid::new("settings")
@@ -236,8 +234,7 @@ fn region_name(code: &str) -> &'static str {
     }
 }
 
-/// Inspect VALORANT's downloaded replay files (structure only), so exact
-/// movement can be decoded from them later.
+/// Inspect VALORANT's downloaded replay files (structure only).
 fn replay_files(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
     ui.label(egui::RichText::new("Replay files").strong());
     ui.weak(

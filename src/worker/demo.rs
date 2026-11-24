@@ -28,6 +28,10 @@ pub const SELF_PUUID: &str = "00000000-0000-4000-8000-000000000000";
 const AGENTS: &[&str] = &[
     "Jett", "Sova", "Omen", "Killjoy", "Raze", "Skye", "Viper", "Reyna", "Cypher", "Breach",
 ];
+/// Riot's internal agent names, as replay files use them.
+const AGENT_DEV_NAMES: &[&str] = &[
+    "Wushu", "Hunter", "Wraith", "Killjoy", "Clay", "Guide", "Pandemic", "Vampire", "Gumshoe", "Breach",
+];
 const MAPS: &[&str] = &["Ascent", "Bind", "Haven", "Split", "Lotus", "Sunset", "Icebox", "Pearl"];
 const NAMES: &[&str] = &[
     // A few non-Latin names so the script fallback fonts get exercised.
@@ -67,6 +71,13 @@ impl Lcg {
 }
 
 /// "Now" for demo timestamps, so relative times ("2h ago") look right.
+/// Demo matches come in play sessions of three, about 50 minutes apart,
+/// one session every ~26 hours.
+fn demo_start_ms(seed: u64) -> i64 {
+    let (session, game) = ((seed as i64 - 1) / 3, (seed as i64 - 1) % 3);
+    demo_now_ms() - 2 * 3_600_000 - session * 26 * 3_600_000 - game * 50 * 60_000
+}
+
 fn demo_now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
@@ -87,6 +98,9 @@ pub fn catalog() -> Catalog {
             Agent {
                 name: a.to_string(),
                 icon: String::new(),
+                dev_name: AGENT_DEV_NAMES[i].to_string(),
+                role: ["Duelist", "Initiator", "Controller", "Sentinel"][i % 4].to_string(),
+                portrait: String::new(),
             },
         );
     }
@@ -118,7 +132,7 @@ pub fn catalog() -> Catalog {
             id.to_string(),
             crate::content::valorant_api::Weapon {
                 name: name.to_string(),
-                icon: String::new(),
+                ..Default::default()
             },
         );
     }
@@ -142,7 +156,71 @@ pub fn synthetic_match(seed: u64) -> MatchDetail {
 /// The same match as a 2D replay, through the real replay parser.
 pub fn synthetic_replay(seed: u64) -> crate::replay::MatchReplay {
     let raw: crate::replay::fetch::MatchDetailsRaw = serde_json::from_value(synthetic_raw(seed)).expect("demo replay");
-    crate::replay::from_raw(&raw)
+    let mut m = crate::replay::from_raw(&raw);
+    demo_items(&mut m);
+    m
+}
+
+/// What a downloaded replay file would add: utility set up before the
+/// first fight and a weapon left at every death spot.
+fn demo_items(m: &mut crate::replay::MatchReplay) {
+    use crate::replay::{ItemKind, Loc, MapItem};
+    let utility = [
+        ("Wraith", "Dark Cover"),
+        ("Killjoy", "Turret"),
+        ("Pandemic", "Toxic Screen"),
+        ("Gumshoe", "Cyber Cage"),
+    ];
+    let agents: Vec<(String, usize)> = m
+        .players
+        .iter()
+        .filter_map(|p| Some((p.puuid.clone(), (0..AGENTS.len()).find(|i| agent_id(*i) == p.agent)?)))
+        .collect();
+    m.replay_file = Some("demo.vrf".into());
+    for round in &mut m.rounds {
+        let Some(first) = round.frames.first() else { continue };
+        let t0 = (first.t_ms as f32 - 6000.0).max(500.0);
+        let mut items = Vec::new();
+        for (k, pl) in first.positions.iter().filter(|p| p.alive).enumerate() {
+            let Some((_, a)) = agents.iter().find(|(id, _)| *id == pl.puuid) else {
+                continue;
+            };
+            let Some((_, name)) = utility.iter().find(|(dev, _)| *dev == AGENT_DEV_NAMES[*a]) else {
+                continue;
+            };
+            items.push(MapItem {
+                kind: ItemKind::Ability {
+                    agent: AGENT_DEV_NAMES[*a].into(),
+                    name: (*name).into(),
+                },
+                pos: Loc {
+                    x: pl.pos.x + 900.0,
+                    y: pl.pos.y + (k as f32 - 2.0) * 250.0,
+                },
+                t: t0 + k as f32 * 700.0,
+                end: Some(t0 + 15000.0 + k as f32 * 700.0),
+            });
+        }
+        for f in &round.frames {
+            let Some(kill) = &f.kill else { continue };
+            if let Some(v) = f.positions.iter().find(|p| p.puuid == kill.victim && !p.alive) {
+                items.push(MapItem {
+                    kind: ItemKind::DroppedWeapon,
+                    pos: Loc {
+                        x: v.pos.x + 120.0,
+                        y: v.pos.y - 80.0,
+                    },
+                    t: f.t_ms as f32 + 300.0,
+                    end: None,
+                });
+            }
+        }
+        items.sort_by(|a, b| a.t.total_cmp(&b.t));
+        if let Some(first) = items.first() {
+            round.timeline.start = round.timeline.start.min((first.t - 1000.0).max(0.0));
+        }
+        round.items = items;
+    }
 }
 
 /// Demo match ids are `d<seed:07>-0000-4000-8000-000000000000`.
@@ -156,7 +234,27 @@ const DEMO_WEAPONS: &[(&str, &str)] = &[
     ("a03b24d3-4319-996d-0f8c-94bbfba1dfc7", "Operator"),
     ("e336c6b8-418d-9340-d77f-7a9e4cfe0702", "Sheriff"),
     ("462080d1-4035-2937-7c09-27aa2a5c27a7", "Spectre"),
+    ("29a0cfab-485b-f5d5-779a-b59f85e204a8", "Classic"),
+    ("ae3de142-4d85-2547-dd26-4e90bed35cf7", "Bulldog"),
+    ("2f59173c-4bed-b6c3-2191-dea9b58be9c7", "Melee"),
 ];
+
+/// What player `i` carries in round `n`: pistols first, then each player's
+/// favourite gun, with the odd eco or alternative.
+fn demo_loadout(rng: &mut Lcg, i: usize, n: u32) -> usize {
+    if n == 0 || n == 12 {
+        return if rng.next(4) == 0 { 3 } else { 5 };
+    }
+    if n == 1 || n == 13 {
+        return [4, 6, 3][rng.next(3) as usize];
+    }
+    let favourite = [0, 1, 0, 2, 1, 0, 1, 2, 0, 1][i % 10];
+    match rng.next(10) {
+        0 => 3,
+        1 => 4,
+        _ => favourite,
+    }
+}
 
 /// Raw match-details JSON (valapidocs shape), including positions at each
 /// kill, plant and defuse from a crude movement simulation.
@@ -195,6 +293,7 @@ fn synthetic_raw(seed: u64) -> serde_json::Value {
             );
         }
         let mut alive: Vec<Vec<usize>> = vec![(0..5).collect(), (5..10).collect()];
+        let loadout: Vec<usize> = (0..10).map(|i| demo_loadout(&mut rng, i, n)).collect();
         let mut stats: Vec<serde_json::Value> = Vec::new();
         let mut t: u64 = 5000;
         let mut plant: Option<(u64, usize, serde_json::Value)> = None;
@@ -266,11 +365,18 @@ fn synthetic_raw(seed: u64) -> serde_json::Value {
             kda[killer].0 += 1;
             kda[victim].1 += 1;
             score[killer] += 150 + 50 * hs;
-            let finishing = if rng.next(12) == 0 {
-                json!({ "damageType": "Ability", "damageItem": "Ultimate", "isSecondaryFireMode": false })
-            } else {
-                let w = DEMO_WEAPONS[rng.next(DEMO_WEAPONS.len() as u64) as usize].0;
-                json!({ "damageType": "Weapon", "damageItem": w.to_uppercase(), "isSecondaryFireMode": false })
+            let finishing = match rng.next(80) {
+                0..=5 => json!({ "damageType": "Ability", "damageItem": "Ultimate", "isSecondaryFireMode": false }),
+                6 => json!({ "damageType": "Melee", "damageItem": "", "isSecondaryFireMode": false }),
+                // Mostly the gun they bought; sometimes a sidearm or a picked-up gun.
+                r => {
+                    let w = if r < 68 {
+                        loadout[killer]
+                    } else {
+                        rng.next(DEMO_WEAPONS.len() as u64 - 1) as usize
+                    };
+                    json!({ "damageType": "Weapon", "damageItem": DEMO_WEAPONS[w].0.to_uppercase(), "isSecondaryFireMode": false })
+                }
             };
             stats.push(json!({ "subject": puuid(killer),
                 "kills": [{ "gameTime": n as u64 * 100_000 + t, "roundTime": t, "killer": puuid(killer), "victim": puuid(victim),
@@ -283,6 +389,10 @@ fn synthetic_raw(seed: u64) -> serde_json::Value {
             red += 1
         } else {
             blue += 1
+        }
+        for (i, &w) in loadout.iter().enumerate() {
+            stats.push(json!({ "subject": puuid(i), "kills": [], "damage": [],
+                "economy": { "weapon": DEMO_WEAPONS[w].0, "armor": "", "loadoutValue": 3900, "spent": 2900, "remaining": 1000 } }));
         }
         let mut round = json!({ "roundNum": n, "winningTeam": teams[winner],
             "winningTeamRole": if winner == attacker { "Attacker" } else { "Defender" },
@@ -319,7 +429,7 @@ fn synthetic_raw(seed: u64) -> serde_json::Value {
     json!({
         "matchInfo": { "matchId": format!("d{seed:07}-0000-4000-8000-000000000000"), "mapId": format!("/Game/Maps/{0}/{0}", MAPS[seed as usize % MAPS.len()]),
                        "queueID": "competitive", "gameMode": "/Game/GameModes/Bomb/BombGameMode.BombGameMode_C",
-                       "gameLengthMillis": 1_500_000 + seed * 37_000, "gameStartMillis": demo_now_ms() - 2 * 3_600_000 - (seed as i64 - 1) * 26 * 3_600_000,
+                       "gameLengthMillis": 1_500_000 + seed * 37_000, "gameStartMillis": demo_start_ms(seed),
                        "isRanked": true, "isCompleted": true },
         "players": players,
         "teams": [{ "teamId": "Red", "won": red > blue, "roundsWon": red, "roundsPlayed": n },
@@ -407,7 +517,7 @@ fn card(i: usize, matches: &[MatchDetail]) -> PlayerCard {
             tag_line: format!("{}", 1000 + i * 7),
         }),
         probe: probe(i),
-        matches: matches[..5]
+        matches: matches[..10]
             .iter()
             .map(|m| MatchHistoryEntry {
                 match_id: m.info.match_id.clone(),
@@ -526,6 +636,20 @@ pub async fn run(mut intents: IntentRx, ctx: Arc<Ctx>) {
         match intent {
             Intent::Ping(n) => ctx.sink.send(Update::Pong(n)),
             Intent::RefreshCareer => send_career(),
+            Intent::LoadOlderMatches { start } => {
+                // Ten more synthetic sessions' worth, then nothing older.
+                let more: Vec<MatchDetail> = (start as u64 + 1..=(start as u64 + 20).min(40))
+                    .map(synthetic_match)
+                    .collect();
+                for m in &more {
+                    ctx.sink
+                        .send(Update::MatchDetails(m.info.match_id.clone(), Arc::new(m.clone())));
+                }
+                ctx.sink.send(Update::OlderMatches {
+                    next: start + more.len() as u32,
+                    exhausted: start + more.len() as u32 >= 40,
+                });
+            }
             Intent::RefreshLiveMatch | Intent::ProbePartyMmr => send_live(&ctx),
             Intent::CheckForUpdates => ctx.sink.send(Update::UpdateStatus(UpdateStatus::UpToDate)),
             Intent::LookupPuuid(p) => {
@@ -552,6 +676,12 @@ pub async fn run(mut intents: IntentRx, ctx: Arc<Ctx>) {
                 };
                 ctx.sink.send(Update::Replay { match_id: id, result });
             }
+            Intent::RefreshStore => ctx.sink.send(Update::Store(Ok(Arc::new(super::shop::demo::store(
+                chrono::Utc::now().timestamp(),
+            ))))),
+            Intent::RefreshLoadout => ctx.sink.send(Update::Loadout(Ok(Arc::new(super::shop::demo::loadout(
+                chrono::Utc::now().timestamp(),
+            ))))),
             Intent::RiotSocialRefresh => social::refresh(&ctx),
             Intent::RiotChatOpen(cid) => social::open(&ctx, &cid),
             Intent::RiotChatSend { cid, text } => social::send(&ctx, cid, text),

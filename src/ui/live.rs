@@ -20,22 +20,7 @@ pub fn loop_state_label(s: LoopState) -> &'static str {
 }
 
 pub fn ui(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
-    ui.horizontal(|ui| {
-        ui.heading("Live");
-        if matches!(state.status, ClientStatus::Authed { .. }) {
-            if ui
-                .button("Rescan lobby")
-                .on_hover_text("Re-check everyone's rank")
-                .clicked()
-            {
-                intents.send(Intent::ProbePartyMmr);
-            }
-            if ui.button("Refresh").clicked() {
-                intents.send(Intent::RefreshLiveMatch);
-            }
-        }
-    });
-    ui.add_space(6.0);
+    let p = super::theme::pal(ui.ctx());
     if !matches!(state.status, ClientStatus::Authed { .. }) {
         ui.label("Start VALORANT to see live match information.");
         return;
@@ -50,7 +35,31 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
         (None, Some(g)) => loop_state_label(g.loop_state),
         (None, None) => "Waiting for game state…",
     };
-    ui.label(RichText::new(banner).size(22.0).strong());
+    ui.horizontal(|ui| {
+        let live_now = state.live.as_ref().is_some_and(|m| m.phase != LivePhase::Party);
+        if live_now {
+            // A pulsing "live" dot.
+            let t = ui.input(|i| i.time) as f32;
+            let (r, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
+            let pulse = 0.5 + 0.5 * (t * 3.0).sin();
+            ui.painter()
+                .circle_filled(r.center(), 4.0 + 3.0 * pulse, p.accent.gamma_multiply(0.25));
+            ui.painter().circle_filled(r.center(), 4.0, p.accent);
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+        }
+        ui.label(RichText::new(banner).font(super::theme::semibold(22.0)).color(p.text));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if super::theme::pill(ui, "Refresh", false).clicked() {
+                intents.send(Intent::RefreshLiveMatch);
+            }
+            if super::theme::pill(ui, "Rescan lobby", false)
+                .on_hover_text("Re-check everyone's rank")
+                .clicked()
+            {
+                intents.send(Intent::ProbePartyMmr);
+            }
+        });
+    });
 
     let Some(live) = state.live.clone() else {
         ui.weak("Party and match rosters appear here automatically.");
