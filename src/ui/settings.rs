@@ -6,8 +6,6 @@ use crate::config::{RendererPref, Theme, MAX_POLL_SECS, MIN_POLL_SECS};
 use crate::ipc::{Intent, IntentTx, UpdateStatus};
 
 pub fn ui(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
-    ui.heading("Settings");
-    ui.add_space(8.0);
     let before = state.settings.clone();
 
     egui::Grid::new("settings")

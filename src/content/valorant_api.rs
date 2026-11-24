@@ -16,6 +16,10 @@ pub struct Agent {
     pub icon: String,
     /// Riot's internal name (e.g. "Smonk"), as replay files use it.
     pub dev_name: String,
+    /// "Duelist", "Initiator", "Controller", "Sentinel" (may be empty).
+    pub role: String,
+    /// Full-body portrait (transparent PNG, loaded on demand), may be empty.
+    pub portrait: String,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -166,6 +170,8 @@ pub async fn fetch_catalog(http: &reqwest::Client) -> Result<Catalog, ApiError> 
                 name: str_of(&a, "displayName"),
                 icon: str_of(&a, "displayIconSmall"),
                 dev_name: str_of(&a, "developerName"),
+                role: a.get("role").map(|r| str_of(r, "displayName")).unwrap_or_default(),
+                portrait: str_of(&a, "fullPortrait"),
             },
         );
     }

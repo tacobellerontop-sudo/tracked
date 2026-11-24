@@ -74,6 +74,7 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
     if let Some(mine) = &my_team {
         teams.sort_by_key(|t| *t != mine.as_str());
     }
+    let perf: std::collections::HashMap<String, u32> = crate::stats::performance_scores(&d).into_iter().collect();
     for team in teams {
         let t = d.team(team);
         let label = format!(
@@ -84,8 +85,12 @@ pub fn ui(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
         );
         ui.label(RichText::new(label).strong());
         let mut players: Vec<&PlayerMatch> = d.players.iter().filter(|p| p.team_id == team).collect();
-        players.sort_by(|a, b| b.stats.acs().total_cmp(&a.stats.acs()));
-        scoreboard(ui, &cat, team, &players, me.as_deref());
+        players.sort_by(|a, b| {
+            perf.get(&b.puuid)
+                .cmp(&perf.get(&a.puuid))
+                .then(b.stats.acs().total_cmp(&a.stats.acs()))
+        });
+        scoreboard(ui, &cat, team, &players, me.as_deref(), &perf);
         ui.add_space(10.0);
     }
 }
@@ -111,7 +116,14 @@ fn round_strip(ui: &mut egui::Ui, d: &MatchDetail, my_team: Option<&str>) {
     });
 }
 
-fn scoreboard(ui: &mut egui::Ui, cat: &Catalog, team: &str, players: &[&PlayerMatch], me: Option<&str>) {
+fn scoreboard(
+    ui: &mut egui::Ui,
+    cat: &Catalog,
+    team: &str,
+    players: &[&PlayerMatch],
+    me: Option<&str>,
+    perf: &std::collections::HashMap<String, u32>,
+) {
     TableBuilder::new(ui)
         .id_salt(team)
         .striped(true)
@@ -122,7 +134,7 @@ fn scoreboard(ui: &mut egui::Ui, cat: &Catalog, team: &str, players: &[&PlayerMa
         .columns(Column::auto().at_least(40.0), 11)
         .header(20.0, |mut h| {
             for t in [
-                "", "Player", "", "ACS", "K", "D", "A", "K/D", "ADR", "HS%", "KAST", "FK/FD", "3K/4K/5K", "Pl/Df",
+                "", "Player", "", "Perf", "K", "D", "A", "K/D", "ADR", "HS%", "KAST", "FK/FD", "3K/4K/5K", "Pl/Df",
             ] {
                 h.col(|ui| {
                     ui.strong(t);
@@ -148,7 +160,7 @@ fn scoreboard(ui: &mut egui::Ui, cat: &Catalog, team: &str, players: &[&PlayerMa
                         widgets::rank_icon(ui, cat, p.competitive_tier, 22.0);
                     });
                     let cells = [
-                        format!("{:.0}", s.acs()),
+                        perf.get(&p.puuid).map(|v| v.to_string()).unwrap_or_else(|| "—".into()),
                         s.kills.to_string(),
                         s.deaths.to_string(),
                         s.assists.to_string(),

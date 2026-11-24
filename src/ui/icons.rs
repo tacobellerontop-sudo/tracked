@@ -36,6 +36,21 @@ pub enum Icon {
     Back,
     Store,
     Loadout,
+    Trophy,
+    Star,
+    Crown,
+    Lightning,
+    Fire,
+    Shield,
+    Skull,
+    Bomb,
+    Clock,
+    Calendar,
+    Sparkle,
+    Recap,
+    Flag,
+    Heart,
+    Ranking,
 }
 
 impl Icon {
@@ -75,6 +90,21 @@ impl Icon {
             Icon::Back => ph::ARROW_LEFT,
             Icon::Store => ph::STOREFRONT,
             Icon::Loadout => ph::BACKPACK,
+            Icon::Trophy => ph::TROPHY,
+            Icon::Star => ph::STAR,
+            Icon::Crown => ph::CROWN,
+            Icon::Lightning => ph::LIGHTNING,
+            Icon::Fire => ph::FIRE,
+            Icon::Shield => ph::SHIELD_CHECK,
+            Icon::Skull => ph::SKULL,
+            Icon::Bomb => ph::BOMB,
+            Icon::Clock => ph::CLOCK,
+            Icon::Calendar => ph::CALENDAR_BLANK,
+            Icon::Sparkle => ph::SPARKLE,
+            Icon::Recap => ph::NOTEBOOK,
+            Icon::Flag => ph::FLAG_CHECKERED,
+            Icon::Heart => ph::HEARTBEAT,
+            Icon::Ranking => ph::RANKING,
         }
     }
 }

@@ -18,7 +18,6 @@ pub fn ui(ui: &mut Ui, state: &mut AppState, intents: &IntentTx) {
     let view = state.shop.loadout.clone();
 
     ui.horizontal(|ui| {
-        ui.label(RichText::new("Loadout").font(theme::semibold(15.0)).color(p.text));
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if state.shop.loadout_loading {
                 ui.spinner();

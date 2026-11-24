@@ -15,6 +15,7 @@ pub mod content;
 pub mod crosshair;
 pub mod diagnostics;
 pub mod error;
+pub mod insights;
 pub mod ipc;
 pub mod logging;
 pub mod replay;

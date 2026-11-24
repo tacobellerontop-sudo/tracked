@@ -71,6 +71,13 @@ impl Lcg {
 }
 
 /// "Now" for demo timestamps, so relative times ("2h ago") look right.
+/// Demo matches come in play sessions of three, about 50 minutes apart,
+/// one session every ~26 hours.
+fn demo_start_ms(seed: u64) -> i64 {
+    let (session, game) = ((seed as i64 - 1) / 3, (seed as i64 - 1) % 3);
+    demo_now_ms() - 2 * 3_600_000 - session * 26 * 3_600_000 - game * 50 * 60_000
+}
+
 fn demo_now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
@@ -92,6 +99,8 @@ pub fn catalog() -> Catalog {
                 name: a.to_string(),
                 icon: String::new(),
                 dev_name: AGENT_DEV_NAMES[i].to_string(),
+                role: ["Duelist", "Initiator", "Controller", "Sentinel"][i % 4].to_string(),
+                portrait: String::new(),
             },
         );
     }
@@ -420,7 +429,7 @@ fn synthetic_raw(seed: u64) -> serde_json::Value {
     json!({
         "matchInfo": { "matchId": format!("d{seed:07}-0000-4000-8000-000000000000"), "mapId": format!("/Game/Maps/{0}/{0}", MAPS[seed as usize % MAPS.len()]),
                        "queueID": "competitive", "gameMode": "/Game/GameModes/Bomb/BombGameMode.BombGameMode_C",
-                       "gameLengthMillis": 1_500_000 + seed * 37_000, "gameStartMillis": demo_now_ms() - 2 * 3_600_000 - (seed as i64 - 1) * 26 * 3_600_000,
+                       "gameLengthMillis": 1_500_000 + seed * 37_000, "gameStartMillis": demo_start_ms(seed),
                        "isRanked": true, "isCompleted": true },
         "players": players,
         "teams": [{ "teamId": "Red", "won": red > blue, "roundsWon": red, "roundsPlayed": n },
@@ -508,7 +517,7 @@ fn card(i: usize, matches: &[MatchDetail]) -> PlayerCard {
             tag_line: format!("{}", 1000 + i * 7),
         }),
         probe: probe(i),
-        matches: matches[..5]
+        matches: matches[..10]
             .iter()
             .map(|m| MatchHistoryEntry {
                 match_id: m.info.match_id.clone(),
@@ -627,6 +636,20 @@ pub async fn run(mut intents: IntentRx, ctx: Arc<Ctx>) {
         match intent {
             Intent::Ping(n) => ctx.sink.send(Update::Pong(n)),
             Intent::RefreshCareer => send_career(),
+            Intent::LoadOlderMatches { start } => {
+                // Ten more synthetic sessions' worth, then nothing older.
+                let more: Vec<MatchDetail> = (start as u64 + 1..=(start as u64 + 20).min(40))
+                    .map(synthetic_match)
+                    .collect();
+                for m in &more {
+                    ctx.sink
+                        .send(Update::MatchDetails(m.info.match_id.clone(), Arc::new(m.clone())));
+                }
+                ctx.sink.send(Update::OlderMatches {
+                    next: start + more.len() as u32,
+                    exhausted: start + more.len() as u32 >= 40,
+                });
+            }
             Intent::RefreshLiveMatch | Intent::ProbePartyMmr => send_live(&ctx),
             Intent::CheckForUpdates => ctx.sink.send(Update::UpdateStatus(UpdateStatus::UpToDate)),
             Intent::LookupPuuid(p) => {

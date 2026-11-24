@@ -9,9 +9,6 @@ use crate::crosshair::{CrosshairCode, Lines, Primary, COLOR_NAMES};
 use crate::ipc::IntentTx;
 
 pub fn ui(ui: &mut egui::Ui, state: &mut AppState, intents: &IntentTx) {
-    ui.heading("Crosshairs");
-    ui.add_space(6.0);
-
     ui.horizontal(|ui| {
         ui.label("Code");
         let resp = ui.add(

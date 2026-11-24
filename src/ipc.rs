@@ -25,6 +25,11 @@ pub enum Intent {
     /// Poll the live game now instead of waiting for the next tick.
     RefreshLiveMatch,
     RefreshCareer,
+    /// Fetch the next page of your match history (older games) and load
+    /// their details, for mastery, recaps and overall stats.
+    LoadOlderMatches {
+        start: u32,
+    },
     LoadMatchDetails(MatchId),
     /// Fetch match-details and build the 2D replay.
     OpenReplay(MatchId),
@@ -107,7 +112,7 @@ pub enum ClientStatus {
 }
 
 /// One point on the RR-over-time sparkline.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct RrPoint {
     pub at_unix: i64,
     pub tier: u32,
@@ -237,6 +242,13 @@ pub enum Update {
         reason: String,
     },
     Career(CareerSummary),
+    /// A page of older matches finished loading.
+    OlderMatches {
+        /// Next history index to ask for.
+        next: u32,
+        /// Riot has no older matches.
+        exhausted: bool,
+    },
     MatchDetails(MatchId, Arc<MatchDetail>),
     /// Text report from [`Intent::CheckReplayFiles`].
     ReplayFileReport(String),

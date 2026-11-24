@@ -81,10 +81,11 @@ pub fn ui(ui: &mut Ui, state: &mut AppState) {
     let mut sort: Sort = ui.ctx().data(|d| d.get_temp(sort_id)).unwrap_or_default();
 
     ui.horizontal(|ui| {
-        theme::page_title(
-            ui,
-            "Weapons",
-            &format!("last {} matches · {} kills", refs.len(), total_kills),
+        let p = theme::pal(ui.ctx());
+        ui.label(
+            egui::RichText::new(format!("Last {} matches · {} kills", refs.len(), total_kills))
+                .size(12.5)
+                .color(p.weak),
         );
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             for s in Sort::ALL.iter().rev() {

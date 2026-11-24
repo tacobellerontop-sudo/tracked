@@ -18,7 +18,7 @@ app is split into two halves joined by two channels (`src/ipc.rs`):
 
 - **`Intent`** (UI → worker, `tokio::mpsc::UnboundedSender`): one variant per user
   action or background need: `Bootstrap`, `RefreshLiveMatch`, `RefreshCareer`,
-  `LoadMatchDetails`, `LookupPlayer`, `LookupPuuid`, `ProbePartyMmr`, `SaveSettings`,
+  `LoadMatchDetails`, `LoadOlderMatches`, `LookupPlayer`, `LookupPuuid`, `ProbePartyMmr`, `SaveSettings`,
   `CheckForUpdates`, `Shutdown`.
 - **`Update`** (worker → UI, `std::sync::mpsc::Sender` wrapped in `UpdateSink`, which
   calls `egui::Context::request_repaint()` after each push): `ClientStatus`, `Content`,

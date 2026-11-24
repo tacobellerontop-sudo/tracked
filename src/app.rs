@@ -34,6 +34,10 @@ pub enum Screen {
     Store,
     /// Your equipped skins, account level and collection.
     Loadout,
+    /// Agent mastery levels and accolades earned.
+    Mastery,
+    /// Session recap and overall stats.
+    Recaps,
     Lookup,
     Crosshairs,
     Social,
@@ -260,6 +264,39 @@ impl CrosshairEditor {
     }
 }
 
+/// Paging through older match history (`LoadOlderMatches`).
+#[derive(Debug, Clone)]
+pub struct OlderMatches {
+    pub next: u32,
+    pub loading: bool,
+    pub exhausted: bool,
+}
+
+impl Default for OlderMatches {
+    fn default() -> Self {
+        OlderMatches {
+            next: crate::worker::tasks::CAREER_MATCHES,
+            loading: false,
+            exhausted: false,
+        }
+    }
+}
+
+impl OlderMatches {
+    pub fn request(&mut self, intents: &IntentTx) {
+        if !self.loading && !self.exhausted {
+            self.loading = true;
+            intents.send(Intent::LoadOlderMatches { start: self.next });
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MasteryTab {
+    Agents,
+    Accolades,
+}
+
 /// The Store and Loadout screens' data. `None` = not loaded yet.
 #[derive(Default)]
 pub struct ShopState {
@@ -324,6 +361,13 @@ pub struct AppState {
     pub social: SocialState,
     pub riot_social: RiotSocial,
     pub shop: ShopState,
+    /// Paging further back through your match history.
+    pub older: OlderMatches,
+    /// Recaps screen: which session is shown (0 = latest).
+    pub recap_session: usize,
+    /// Mastery screen: agent opened in detail, and which tab is showing.
+    pub mastery_agent: Option<String>,
+    pub mastery_tab: MasteryTab,
     pub toasts: Vec<Toast>,
     pub pending_toasts: Vec<String>,
     pub settings: Settings,
@@ -374,6 +418,10 @@ impl AppState {
             social: SocialState::new(settings.backend_url.clone()),
             riot_social: RiotSocial::default(),
             shop: ShopState::default(),
+            older: OlderMatches::default(),
+            recap_session: 0,
+            mastery_agent: None,
+            mastery_tab: MasteryTab::Agents,
             toasts: Vec::new(),
             pending_toasts: Vec::new(),
             settings,
@@ -417,6 +465,11 @@ impl AppState {
             }
             Update::CareerLoading(b) => self.career_loading = b,
             Update::Career(c) => self.career = Some(c),
+            Update::OlderMatches { next, exhausted } => {
+                self.older.loading = false;
+                self.older.next = next;
+                self.older.exhausted = exhausted;
+            }
             Update::MatchDetails(id, m) => {
                 self.matches.insert(id, m);
             }

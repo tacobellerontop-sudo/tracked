@@ -31,7 +31,10 @@ pub struct PlayerLoadout {
 /// see [`super::store::loadout`]).
 pub async fn player_loadout(s: &RiotSession, puuid: &str) -> Result<PlayerLoadout, ApiError> {
     let pd = s.pd()?;
-    match s.get(&format!("{pd}/personalization/v3/players/{puuid}/playerloadout")).await {
+    match s
+        .get(&format!("{pd}/personalization/v3/players/{puuid}/playerloadout"))
+        .await
+    {
         Err(ApiError::NotFound) | Err(ApiError::Status(405)) => {
             s.get(&format!("{pd}/personalization/v2/players/{puuid}/playerloadout"))
                 .await

@@ -6,9 +6,16 @@ A lightweight, native desktop companion for VALORANT, written in Rust with
 - Detects the running Riot client and the signed-in player
 - **Live:** game state (menus / agent select / in game) and a lobby roster with
   each player's rank, RR, season win rate, recent form, peak rank and level
-- **Home:** your player card and rank; win rate, K/D, ACS and headshot % compared with
-  the average player in your lobbies; an ACS chart (7D/30D/90D/All); top agents; rank
-  progression; recent ranked activity; recent matches; and what you're doing right now
+- **Home:** your player card and rank; win rate, K/D, **performance score** and headshot %
+  compared with the average player in your lobbies; a performance chart (7D/30D/90D/All); top
+  agents; rank progression; recent ranked activity; recent matches; and what you're doing right now
+- **Recaps:** a recap of every play session (record, net RR, performance, K/D/A, headshot %, best
+  game, accolades and agents played) and your overall stats: performance over time, maps, agents
+  and career totals. **Load older matches** pages further back through your history, and matches
+  already cached on disk are read back so these stats grow over time
+- **Mastery:** a mastery level for every agent (games, wins, performance and accolades earn points;
+  every five levels is a new tier) and an **Accolades** view: 12 accolades (Match MVP, Ace, Clutch
+  Master, Entry King, Headhunter…) with how often and when you last earned each
 - **Matches / Agents:** full match history and per-agent stats (filterable from the search bar).
   Each match shows a **performance score** (0–1000, 500 = the lobby average) that rates you
   against the other nine players on ACS, KAST, ADR, K/D, entry duels and headshot %
@@ -17,9 +24,11 @@ A lightweight, native desktop companion for VALORANT, written in Rust with
   Kills are exact; hits are attributed (hits on a player go to the gun that killed them, the rest
   to the gun you bought that round), since Riot doesn't record the gun behind each hit.
   Each match screen also breaks down your weapons for that game
-- **Match detail:** both scoreboards (ACS, K/D, ADR, HS%, KAST, first kills/deaths,
+- **Match detail:** both scoreboards, sorted by performance score (Perf, K/D, ADR, HS%, KAST, first kills/deaths,
   multi-kills, plants/defuses) and a round-by-round strip
-- **Lookup:** another player's rank and recent matches
+- **Players:** another player's profile: rank and peak, performance, win rate, K/D, headshot %,
+  ADR and KAST over their last 10 matches, a performance chart, their agents, maps, accolades and
+  match history
 - **2D replay:** watch any match top-down on the map's minimap, played like a video: all ten
   players move, kills flash in, the spike goes down and gets defused, with a scrubbable timeline,
   0.5×–4× speed, round chips and a live kill feed. Open it from the **Replays** tab, the
@@ -43,7 +52,9 @@ A lightweight, native desktop companion for VALORANT, written in Rust with
 
 ![Home dashboard](docs/screenshots/home.png)
 
-More: [home, lower half](docs/screenshots/home-bottom.png) · [dark mode](docs/screenshots/home-dark.png) ·
+More: [recaps](docs/screenshots/recaps.png) · [mastery](docs/screenshots/mastery.png) ·
+[accolades](docs/screenshots/accolades.png) · [player profile](docs/screenshots/profile.png) ·
+[home, lower half](docs/screenshots/home-bottom.png) · [dark mode](docs/screenshots/home-dark.png) ·
 [agents](docs/screenshots/agents.png) · [weapons](docs/screenshots/weapons.png) · [live lobby](docs/screenshots/live.png) ·
 [match detail](docs/screenshots/match-detail.png) · [startup check](docs/screenshots/startup.png) ·
 [friends & whispers](docs/screenshots/friends.png) · [store](docs/screenshots/store.png) ·

@@ -24,6 +24,10 @@ pub struct Palette {
     pub weak: Color32,
     pub faint: Color32,
     pub accent: Color32,
+    /// Second accent for charts and highlights (cool, pairs with the red).
+    pub accent2: Color32,
+    /// Accolades, mastery and other "earned" things.
+    pub gold: Color32,
     pub win: Color32,
     pub loss: Color32,
     pub warn: Color32,
@@ -37,43 +41,48 @@ pub struct Palette {
 
 pub const LIGHT: Palette = Palette {
     dark: false,
-    bg: Color32::from_rgb(240, 241, 245),
-    sidebar: Color32::from_rgb(249, 249, 251),
+    bg: Color32::from_rgb(242, 243, 248),
+    sidebar: Color32::from_rgb(250, 250, 253),
     card: Color32::from_rgb(255, 255, 255),
-    well: Color32::from_rgb(236, 238, 243),
-    stroke: Color32::from_rgb(225, 228, 235),
-    text: Color32::from_rgb(20, 23, 31),
-    weak: Color32::from_rgb(110, 116, 130),
-    faint: Color32::from_rgb(168, 173, 184),
-    accent: Color32::from_rgb(240, 62, 78),
-    win: Color32::from_rgb(20, 168, 132),
-    loss: Color32::from_rgb(228, 70, 82),
-    warn: Color32::from_rgb(218, 150, 30),
-    navy: Color32::from_rgb(17, 20, 28),
+    well: Color32::from_rgb(237, 239, 245),
+    stroke: Color32::from_rgb(226, 229, 238),
+    text: Color32::from_rgb(17, 20, 30),
+    weak: Color32::from_rgb(104, 110, 128),
+    faint: Color32::from_rgb(160, 166, 182),
+    accent: Color32::from_rgb(236, 52, 72),
+    accent2: Color32::from_rgb(92, 84, 240),
+    gold: Color32::from_rgb(214, 152, 22),
+    win: Color32::from_rgb(16, 166, 124),
+    loss: Color32::from_rgb(226, 62, 78),
+    warn: Color32::from_rgb(214, 144, 20),
+    navy: Color32::from_rgb(17, 20, 30),
     on_navy: Color32::from_rgb(246, 247, 250),
-    selected: Color32::from_rgb(236, 238, 243),
-    grid: Color32::from_rgb(230, 232, 238),
+    selected: Color32::from_rgb(236, 238, 245),
+    grid: Color32::from_rgb(232, 234, 241),
 };
 
-/// Deep blue-black with VALORANT-red accents.
+/// Ink-black with a hint of indigo, VALORANT red and an electric-violet
+/// second accent.
 pub const DARK: Palette = Palette {
     dark: true,
-    bg: Color32::from_rgb(12, 14, 19),
-    sidebar: Color32::from_rgb(15, 17, 23),
-    card: Color32::from_rgb(21, 24, 31),
-    well: Color32::from_rgb(30, 34, 43),
-    stroke: Color32::from_rgb(36, 40, 50),
-    text: Color32::from_rgb(236, 238, 243),
-    weak: Color32::from_rgb(142, 148, 162),
-    faint: Color32::from_rgb(86, 92, 106),
+    bg: Color32::from_rgb(9, 10, 16),
+    sidebar: Color32::from_rgb(12, 13, 21),
+    card: Color32::from_rgb(18, 20, 31),
+    well: Color32::from_rgb(28, 31, 45),
+    stroke: Color32::from_rgb(35, 38, 54),
+    text: Color32::from_rgb(238, 240, 248),
+    weak: Color32::from_rgb(146, 151, 172),
+    faint: Color32::from_rgb(88, 93, 116),
     accent: Color32::from_rgb(255, 70, 85),
-    win: Color32::from_rgb(45, 212, 168),
-    loss: Color32::from_rgb(255, 92, 102),
-    warn: Color32::from_rgb(240, 182, 64),
-    navy: Color32::from_rgb(240, 241, 245),
-    on_navy: Color32::from_rgb(14, 16, 22),
-    selected: Color32::from_rgb(30, 34, 44),
-    grid: Color32::from_rgb(34, 38, 48),
+    accent2: Color32::from_rgb(132, 112, 255),
+    gold: Color32::from_rgb(246, 196, 82),
+    win: Color32::from_rgb(52, 211, 153),
+    loss: Color32::from_rgb(255, 92, 108),
+    warn: Color32::from_rgb(251, 191, 36),
+    navy: Color32::from_rgb(240, 241, 248),
+    on_navy: Color32::from_rgb(12, 13, 21),
+    selected: Color32::from_rgb(29, 31, 47),
+    grid: Color32::from_rgb(30, 33, 48),
 };
 
 fn palette_id() -> egui::Id {
@@ -401,18 +410,24 @@ pub fn apply(ctx: &egui::Context, theme: Theme) {
     });
 }
 
-/// The standard card container.
+/// The standard card container: slightly translucent so the window's
+/// ambient glow shows through, with a hairline border.
 pub fn card_frame(p: &Palette) -> Frame {
+    let fill = if p.dark {
+        Color32::from_rgba_unmultiplied(p.card.r(), p.card.g(), p.card.b(), 228)
+    } else {
+        p.card
+    };
     Frame::NONE
-        .fill(p.card)
+        .fill(fill)
         .stroke(Stroke::new(1.0_f32, p.stroke))
-        .corner_radius(CornerRadius::same(16))
+        .corner_radius(CornerRadius::same(18))
         .inner_margin(Margin::same(20))
         .shadow(Shadow {
-            offset: [0, 8],
-            blur: 32,
+            offset: [0, 10],
+            blur: 36,
             spread: 0,
-            color: Color32::from_black_alpha(if p.dark { 90 } else { 14 }),
+            color: Color32::from_black_alpha(if p.dark { 110 } else { 16 }),
         })
 }
 
@@ -427,8 +442,136 @@ pub fn card<R>(ui: &mut Ui, height: Option<f32>, add: impl FnOnce(&mut Ui) -> R)
         }
         add(ui)
     });
-    top_sheen(ui, r.response.rect, 16.0);
+    top_sheen(ui, r.response.rect, 18.0);
     r.inner
+}
+
+/// A card with a tinted glow in one corner (hero panels).
+pub fn glow_card<R>(ui: &mut Ui, tint: Color32, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let p = pal(ui.ctx());
+    let glow = ui.painter().add(egui::Shape::Noop);
+    let r = card_frame(&p).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.spacing_mut().item_spacing = Vec2::new(8.0, 6.0);
+        add(ui)
+    });
+    let rect = r.response.rect;
+    let painter = ui.painter().with_clip_rect(rect.shrink(1.0));
+    let mut shapes = Vec::new();
+    radial_glow_shapes(
+        &mut shapes,
+        rect.right_top() + Vec2::new(-rect.width() * 0.12, rect.height() * 0.1),
+        rect.height().max(160.0) * 1.3,
+        tint.gamma_multiply(if p.dark { 0.22 } else { 0.10 }),
+    );
+    // Painted behind the content (reserved slot), clipped to the card.
+    painter.set(glow, egui::Shape::Vec(shapes));
+    top_sheen(ui, rect, 18.0);
+    r.inner
+}
+
+/// A soft radial glow (a fan mesh fading to transparent).
+pub fn radial_glow(painter: &egui::Painter, center: egui::Pos2, radius: f32, color: Color32) {
+    let mut v = Vec::new();
+    radial_glow_shapes(&mut v, center, radius, color);
+    painter.extend(v);
+}
+
+fn radial_glow_shapes(out: &mut Vec<egui::Shape>, center: egui::Pos2, radius: f32, color: Color32) {
+    let mut mesh = egui::Mesh::default();
+    let clear = Color32::TRANSPARENT;
+    let n = 48u32;
+    // Three rings so the fall-off is smooth rather than linear.
+    let rings = [(0.0, color), (0.45, color.gamma_multiply(0.45)), (1.0, clear)];
+    mesh.colored_vertex(center, rings[0].1);
+    for (k, (f, c)) in rings.iter().enumerate().skip(1) {
+        for i in 0..n {
+            let a = i as f32 / n as f32 * std::f32::consts::TAU;
+            mesh.colored_vertex(center + Vec2::new(a.cos(), a.sin()) * radius * *f, *c);
+        }
+        let base = 1 + (k as u32 - 1) * n;
+        for i in 0..n {
+            let j = (i + 1) % n;
+            if k == 1 {
+                mesh.add_triangle(0, base + i, base + j);
+            } else {
+                let prev = base - n;
+                mesh.add_triangle(prev + i, base + i, base + j);
+                mesh.add_triangle(prev + i, base + j, prev + j);
+            }
+        }
+    }
+    out.push(egui::Shape::mesh(mesh));
+}
+
+/// A rounded square badge with an icon on a tinted fill.
+pub fn icon_badge(painter: &egui::Painter, rect: egui::Rect, icon: super::icons::Icon, tint: Color32) {
+    painter.rect_filled(
+        rect,
+        CornerRadius::same((rect.width() * 0.3) as u8),
+        tint.gamma_multiply(0.16),
+    );
+    super::icons::paint(painter, rect.shrink(rect.width() * 0.27), tint, icon);
+}
+
+/// A compact stat: small label over a big value, optional sub line.
+pub fn stat(ui: &mut Ui, label: &str, value: &str, sub: Option<(&str, Color32)>) {
+    let p = pal(ui.ctx());
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 2.0;
+        eyebrow(ui, label);
+        ui.label(RichText::new(value).font(semibold(19.0)).color(p.text));
+        if let Some((s, c)) = sub {
+            ui.label(RichText::new(s).size(11.0).color(c));
+        }
+    });
+}
+
+/// A grid of equal-width cells that wraps to fit; `min_w` is the narrowest
+/// a cell may get.
+pub fn tiles<T>(ui: &mut Ui, items: &[T], min_w: f32, gap: f32, mut cell: impl FnMut(&mut Ui, &T)) {
+    if items.is_empty() {
+        return;
+    }
+    let w = ui.available_width();
+    let cols = (((w + gap) / (min_w + gap)).floor() as usize).clamp(1, items.len());
+    let cw = ((w - gap * (cols as f32 - 1.0)) / cols as f32).floor();
+    for row in items.chunks(cols) {
+        ui.horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing.x = gap;
+            for it in row {
+                ui.allocate_ui_with_layout(Vec2::new(cw, 0.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+                    ui.set_width(cw);
+                    cell(ui, it)
+                });
+            }
+        });
+        ui.add_space(gap - ui.spacing().item_spacing.y);
+    }
+}
+
+/// A rounded progress bar with a two-tone gradient fill.
+pub fn gradient_bar(ui: &mut Ui, frac: f32, width: f32, height: f32, from: Color32, to: Color32) {
+    let p = pal(ui.ctx());
+    let (r, _) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
+    let radius = CornerRadius::same((height / 2.0) as u8);
+    ui.painter().rect_filled(r, radius, p.well);
+    let f = frac.clamp(0.0, 1.0);
+    if f > 0.0 {
+        let fill = egui::Rect::from_min_size(r.min, Vec2::new((r.width() * f).max(height), height));
+        let painter = ui.painter().with_clip_rect(fill);
+        painter.rect_filled(fill, radius, to);
+        // Gradient body inset by the radius so the rounded ends stay solid.
+        let inner = fill.shrink2(Vec2::new(height / 2.0, 0.0));
+        if inner.width() > 0.0 {
+            gradient_rect(&painter, inner, from, to);
+        }
+        painter.circle_filled(
+            egui::pos2(fill.left() + height / 2.0, fill.center().y),
+            height / 2.0,
+            from,
+        );
+    }
 }
 
 /// A faint light catch along a card's top edge (dark theme), so cards read
@@ -523,7 +666,7 @@ pub fn card_title(ui: &mut Ui, title: &str, link: Option<&str>) -> bool {
     let p = pal(ui.ctx());
     let mut clicked = false;
     ui.horizontal(|ui| {
-        ui.label(RichText::new(title).font(semibold(15.0)).color(p.text));
+        ui.label(RichText::new(title).font(semibold(15.5)).color(p.text));
         if let Some(link) = link {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 clicked = link_button(ui, link).clicked();
@@ -548,8 +691,8 @@ pub fn pill(ui: &mut Ui, label: &str, selected: bool) -> Response {
     let p = pal(ui.ctx());
     let text = RichText::new(label)
         .size(11.5)
-        .color(if selected { p.on_navy } else { p.weak });
-    let fill = if selected { p.navy } else { Color32::TRANSPARENT };
+        .color(if selected { Color32::WHITE } else { p.weak });
+    let fill = if selected { p.accent } else { Color32::TRANSPARENT };
     ui.add(
         egui::Button::new(text)
             .fill(fill)
@@ -560,24 +703,67 @@ pub fn pill(ui: &mut Ui, label: &str, selected: bool) -> Response {
 
 /// Full-width primary button with a trailing arrow.
 pub fn primary_button(ui: &mut Ui, label: &str) -> Response {
+    let size = Vec2::new(ui.available_width(), 38.0);
+    accent_button_sized(ui, label, size, true)
+}
+
+/// A compact accent button sized to its label.
+pub fn accent_button(ui: &mut Ui, label: &str) -> Response {
+    let galley = ui
+        .painter()
+        .layout_no_wrap(label.to_string(), medium(12.5), Color32::WHITE);
+    let size = Vec2::new(galley.size().x + 28.0, 32.0);
+    accent_button_sized(ui, label, size, false)
+}
+
+fn accent_button_sized(ui: &mut Ui, label: &str, size: Vec2, arrow: bool) -> Response {
     let p = pal(ui.ctx());
-    let size = Vec2::new(ui.available_width(), 36.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
-    let fill = if resp.hovered() {
-        p.navy.gamma_multiply(0.9)
-    } else {
-        p.navy
-    };
-    ui.painter().rect_filled(rect, CornerRadius::same(10), fill);
-    ui.painter().text(
-        rect.center(),
-        egui::Align2::CENTER_CENTER,
-        label,
-        egui::FontId::proportional(13.0),
-        p.on_navy,
+    let hover = glide(
+        ui.ctx(),
+        resp.id.with("hover"),
+        if resp.hovered() { 1.0 } else { 0.0 },
+        0.12,
     );
-    let arrow = egui::Rect::from_center_size(rect.right_center() - egui::vec2(22.0, 0.0), egui::vec2(10.0, 10.0));
-    super::icons::paint(ui.painter(), arrow, p.on_navy, super::icons::Icon::ArrowRight);
+    let radius = CornerRadius::same(11);
+    let painter = ui.painter().with_clip_rect(rect);
+    painter.rect_filled(rect, radius, p.accent);
+    let inner = rect.shrink2(Vec2::new(11.0, 0.0));
+    gradient_rect(
+        &painter,
+        inner,
+        p.accent,
+        p.accent.lerp_to_gamma(p.accent2, 0.35 + 0.25 * hover),
+    );
+    painter.rect_filled(
+        egui::Rect::from_min_max(egui::pos2(inner.right() - 0.5, rect.top()), rect.max),
+        CornerRadius {
+            nw: 0,
+            sw: 0,
+            ne: 11,
+            se: 11,
+        },
+        p.accent.lerp_to_gamma(p.accent2, 0.35 + 0.25 * hover),
+    );
+    if arrow {
+        painter.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            label,
+            medium(13.0),
+            Color32::WHITE,
+        );
+        let a = egui::Rect::from_center_size(rect.right_center() - egui::vec2(22.0, 0.0), egui::vec2(10.0, 10.0));
+        super::icons::paint(&painter, a, Color32::WHITE, super::icons::Icon::ArrowRight);
+    } else {
+        painter.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            label,
+            medium(12.5),
+            Color32::WHITE,
+        );
+    }
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 

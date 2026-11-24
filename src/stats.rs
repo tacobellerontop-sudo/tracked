@@ -21,9 +21,66 @@ pub struct Totals {
     pub damage: u32,
     pub headshots: u32,
     pub hits: u32,
+    pub kast_rounds: u32,
+    pub first_kills: u32,
+    pub first_deaths: u32,
+    pub clutches: u32,
+    pub aces: u32,
+    pub multi3: u32,
+    pub multi4: u32,
+    pub plants: u32,
+    pub defuses: u32,
+    pub draws: u32,
+    /// Match time in milliseconds.
+    pub play_ms: u64,
+    /// Sum and count of per-match performance scores (see [`performance`]).
+    pub perf_sum: u32,
+    pub perf_n: u32,
 }
 
 impl Totals {
+    /// Add one player's match: stats, outcome, length and performance score.
+    pub fn add_match(&mut self, m: &MatchDetail, puuid: &str, perf: Option<u32>) {
+        let Some(me) = m.player(puuid) else { return };
+        self.matches += 1;
+        self.add(&me.stats);
+        self.play_ms += m.info.game_length_ms;
+        match m.outcome_for(puuid) {
+            Some((Outcome::Win, ..)) => self.wins += 1,
+            Some((Outcome::Loss, ..)) => self.losses += 1,
+            Some((Outcome::Draw, ..)) => self.draws += 1,
+            None => {}
+        }
+        if let Some(p) = perf {
+            self.perf_sum += p;
+            self.perf_n += 1;
+        }
+    }
+
+    /// Average performance score (0–1000, 500 = lobby average).
+    pub fn perf(&self) -> Option<f32> {
+        (self.perf_n > 0).then(|| self.perf_sum as f32 / self.perf_n as f32)
+    }
+
+    pub fn kast_pct(&self) -> f32 {
+        100.0 * self.kast_rounds as f32 / self.rounds.max(1) as f32
+    }
+
+    /// K + A over D.
+    pub fn kda(&self) -> f32 {
+        (self.kills + self.assists) as f32 / self.deaths.max(1) as f32
+    }
+
+    pub fn kills_per_round(&self) -> f32 {
+        self.kills as f32 / self.rounds.max(1) as f32
+    }
+
+    /// Share of opening duels won, 0-100.
+    pub fn entry_pct(&self) -> Option<f32> {
+        let duels = self.first_kills + self.first_deaths;
+        (duels > 0).then(|| 100.0 * self.first_kills as f32 / duels as f32)
+    }
+
     fn add(&mut self, s: &crate::riot::models::PlayerStats) {
         self.kills += s.kills;
         self.deaths += s.deaths;
@@ -33,6 +90,15 @@ impl Totals {
         self.damage += s.damage_made;
         self.headshots += s.headshots;
         self.hits += s.headshots + s.bodyshots + s.legshots;
+        self.kast_rounds += s.kast_rounds;
+        self.first_kills += s.first_kills;
+        self.first_deaths += s.first_deaths;
+        self.clutches += s.clutches_won;
+        self.aces += s.aces;
+        self.multi3 += s.multi_kill_rounds3;
+        self.multi4 += s.multi_kill_rounds4;
+        self.plants += s.plants;
+        self.defuses += s.defuses;
     }
 
     pub fn kd(&self) -> f32 {
@@ -69,16 +135,18 @@ pub struct Overview {
 pub fn overview(puuid: &str, matches: &[&MatchDetail]) -> Overview {
     let mut o = Overview::default();
     for m in matches {
-        let Some(me) = m.player(puuid) else { continue };
-        o.me.matches += 1;
-        o.me.add(&me.stats);
-        match m.outcome_for(puuid) {
-            Some((Outcome::Win, ..)) => o.me.wins += 1,
-            Some((Outcome::Loss, ..)) => o.me.losses += 1,
-            _ => {}
+        if m.player(puuid).is_none() {
+            continue;
         }
+        let scores = performance_scores(m);
+        let perf_of = |p: &str| scores.iter().find(|(id, _)| id == p).map(|(_, s)| *s);
+        o.me.add_match(m, puuid, perf_of(puuid));
         for p in m.players.iter().filter(|p| p.puuid != puuid) {
             o.lobby.add(&p.stats);
+            if let Some(s) = perf_of(&p.puuid) {
+                o.lobby.perf_sum += s;
+                o.lobby.perf_n += 1;
+            }
         }
     }
     o
@@ -100,14 +168,9 @@ pub fn agents(puuid: &str, matches: &[&MatchDetail]) -> Vec<AgentStats> {
     let mut map: HashMap<String, Totals> = HashMap::new();
     for m in matches {
         let Some(me) = m.player(puuid) else { continue };
-        let t = map.entry(me.character_id.clone()).or_default();
-        t.matches += 1;
-        t.add(&me.stats);
-        match m.outcome_for(puuid) {
-            Some((Outcome::Win, ..)) => t.wins += 1,
-            Some((Outcome::Loss, ..)) => t.losses += 1,
-            _ => {}
-        }
+        map.entry(me.character_id.clone())
+            .or_default()
+            .add_match(m, puuid, performance(m, puuid));
     }
     let mut v: Vec<AgentStats> = map
         .into_iter()
@@ -205,6 +268,18 @@ impl Range {
             Range::All => None,
         }
     }
+}
+
+/// `(start unix seconds, performance score)` per match within `range` of
+/// `now`, oldest first.
+pub fn perf_series(puuid: &str, matches: &[&MatchDetail], range: Range, now: i64) -> Vec<(i64, f32)> {
+    let mut v: Vec<(i64, f32)> = matches
+        .iter()
+        .filter(|m| range.seconds().is_none_or(|s| m.info.started_at_unix >= now - s))
+        .filter_map(|m| performance(m, puuid).map(|p| (m.info.started_at_unix, p as f32)))
+        .collect();
+    v.sort_by_key(|(t, _)| *t);
+    v
 }
 
 /// `(start unix seconds, ACS)` per match within `range` of `now`, oldest first.

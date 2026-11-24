@@ -322,25 +322,21 @@ fn stat_cards(ui: &mut Ui, career: &CareerSummary, o: &Overview) {
             );
         });
         column(ui, cw, |ui| {
-            let sub = if has {
-                format!("Lobby avg {:.0}", o.lobby.acs())
-            } else {
-                "No matches yet".into()
+            let perf = o.me.perf();
+            let sub = match perf {
+                Some(_) => format!("Lobby avg {:.0}", o.lobby.perf().unwrap_or(500.0)),
+                None => "No matches yet".into(),
             };
             stat_card(
                 ui,
-                "ACS",
-                &if has {
-                    format!("{:.0}", o.me.acs())
-                } else {
-                    "–".into()
-                },
+                "Performance",
+                &perf.map(|v| format!("{v:.0}")).unwrap_or_else(|| "–".into()),
                 &sub,
-                Some(Icon::Crosshair),
+                Some(Icon::Lightning),
                 None,
                 |ui| {
-                    if has {
-                        lobby(ui, o.me.acs(), o.lobby.acs())
+                    if let Some(v) = perf {
+                        lobby(ui, v, o.lobby.perf().unwrap_or(500.0))
                     }
                 },
             );
@@ -392,8 +388,12 @@ fn stat_card(
         if let Some(frac) = ring {
             progress_ring(ui.painter(), badge.center(), 15.0, frac, &p);
         } else if let Some(i) = icon {
-            ui.painter().circle_filled(badge.center(), 15.0, p.well);
-            icons::paint(ui.painter(), badge.shrink(8.0), p.weak, i);
+            let tint = match i {
+                Icon::Swords => p.accent2,
+                Icon::Lightning => p.accent,
+                _ => p.gold,
+            };
+            theme::icon_badge(ui.painter(), badge.expand(1.0), i, tint);
         }
     });
 }
@@ -416,7 +416,7 @@ fn performance(ui: &mut Ui, range: &mut Range, puuid: &str, refs: &[&MatchDetail
     theme::card(ui, Some(ROW2_H), |ui| {
         ui.horizontal(|ui| {
             ui.label(RichText::new("Performance").size(15.0).strong().color(p.text));
-            ui.label(RichText::new("ACS per match").size(11.0).color(p.faint));
+            ui.label(RichText::new("Performance score per match").size(11.0).color(p.faint));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
                 for r in Range::ALL.iter().rev() {
@@ -427,111 +427,9 @@ fn performance(ui: &mut Ui, range: &mut Range, puuid: &str, refs: &[&MatchDetail
             });
         });
         ui.add_space(8.0);
-        let series = stats::acs_series(puuid, refs, *range, now);
-        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW2_H - 92.0), Sense::hover());
-        line_chart(ui, rect, &series, &p, resp.hover_pos());
+        let series = stats::perf_series(puuid, refs, *range, now);
+        super::profile::perf_chart(ui, ROW2_H - 92.0, &series, *range as u64);
     });
-}
-
-/// Line chart with gridlines, value labels, date labels and a soft fill.
-fn line_chart(ui: &Ui, rect: Rect, series: &[(i64, f32)], p: &Palette, hover: Option<egui::Pos2>) {
-    let painter = ui.painter_at(rect);
-    if series.len() < 2 {
-        painter.text(
-            rect.center(),
-            Align2::CENTER_CENTER,
-            "Not enough matches in this range",
-            FontId::proportional(12.0),
-            p.weak,
-        );
-        return;
-    }
-    let (lo, hi) = series
-        .iter()
-        .fold((f32::MAX, f32::MIN), |(a, b), (_, v)| (a.min(*v), b.max(*v)));
-    let step = 50.0;
-    let lo = ((lo / step).floor() * step - step).max(0.0);
-    let hi = (hi / step).ceil() * step + step * 0.0 + step;
-    let plot = Rect::from_min_max(rect.min + vec2(34.0, 6.0), rect.max - vec2(8.0, 22.0));
-    let y_of = |v: f32| plot.bottom() - (v - lo) / (hi - lo) * plot.height();
-    let x_of = |i: usize| plot.left() + plot.width() * i as f32 / (series.len() - 1) as f32;
-
-    let lines = 4;
-    for k in 0..=lines {
-        let v = lo + (hi - lo) * k as f32 / lines as f32;
-        let y = y_of(v);
-        painter.line_segment(
-            [pos2(plot.left(), y), pos2(plot.right(), y)],
-            Stroke::new(1.0_f32, p.grid),
-        );
-        painter.text(
-            pos2(rect.left(), y),
-            Align2::LEFT_CENTER,
-            format!("{v:.0}"),
-            FontId::proportional(10.5),
-            p.weak,
-        );
-    }
-    let pts: Vec<_> = series
-        .iter()
-        .enumerate()
-        .map(|(i, (_, v))| pos2(x_of(i), y_of(*v)))
-        .collect();
-
-    // Fill under the line.
-    let mut mesh = egui::Mesh::default();
-    let top = p.navy.gamma_multiply(0.14);
-    let bottom = p.navy.gamma_multiply(0.0);
-    for (i, pt) in pts.iter().enumerate() {
-        mesh.colored_vertex(*pt, top);
-        mesh.colored_vertex(pos2(pt.x, plot.bottom()), bottom);
-        if i > 0 {
-            let b = (i as u32) * 2;
-            mesh.add_triangle(b - 2, b - 1, b);
-            mesh.add_triangle(b - 1, b + 1, b);
-        }
-    }
-    painter.add(Shape::mesh(mesh));
-    painter.add(Shape::line(pts.clone(), Stroke::new(1.8_f32, p.navy)));
-    for pt in &pts {
-        painter.circle_filled(*pt, 2.6, p.navy);
-    }
-
-    // Up to 7 date labels.
-    let n = series.len();
-    let labels = n.min(7);
-    for k in 0..labels {
-        let i = if labels == 1 { 0 } else { k * (n - 1) / (labels - 1) };
-        let date = chrono::DateTime::from_timestamp(series[i].0, 0)
-            .map(|d| d.with_timezone(&chrono::Local).format("%b %d").to_string())
-            .unwrap_or_default();
-        painter.text(
-            pos2(x_of(i), rect.bottom() - 6.0),
-            Align2::CENTER_CENTER,
-            date,
-            FontId::proportional(10.5),
-            p.weak,
-        );
-    }
-
-    // Hover: nearest point's value.
-    if let Some(h) = hover {
-        if let Some((i, pt)) = pts
-            .iter()
-            .enumerate()
-            .min_by(|a, b| (a.1.x - h.x).abs().total_cmp(&(b.1.x - h.x).abs()))
-        {
-            painter.circle_stroke(*pt, 5.0, Stroke::new(1.5_f32, p.accent));
-            let label = format!("{:.0} ACS", series[i].1);
-            painter.text(
-                *pt - vec2(0.0, 12.0),
-                Align2::CENTER_BOTTOM,
-                label,
-                FontId::proportional(11.5),
-                p.text,
-            );
-        }
-    }
 }
 
 /// Returns true when "View all" was clicked.
@@ -571,7 +469,7 @@ fn top_agents(ui: &mut Ui, cat: &Catalog, puuid: &str, refs: &[&MatchDetail]) ->
                         bar.min,
                         vec2(bar.width() * a.totals.matches as f32 / most as f32, bar.height()),
                     );
-                    ui.painter().rect_filled(filled, 2.0, p.navy.gamma_multiply(0.7));
+                    ui.painter().rect_filled(filled, 2.0, p.accent2);
                 });
             });
             ui.add_space(4.0);
@@ -841,13 +739,14 @@ fn recent_match_row(ui: &mut Ui, cat: &Catalog, puuid: &str, m: &MatchDetail, no
             p.text,
         );
         let mid = rect.left() + rect.width() * 0.66;
-        painter.text(pos2(mid, rect.top() + 40.0), Align2::LEFT_TOP, "ACS", f(10.0), p.faint);
+        painter.text(pos2(mid, rect.top() + 40.0), Align2::LEFT_TOP, "PERF", f(10.0), p.faint);
+        let perf = stats::performance(m, puuid);
         painter.text(
             pos2(mid, rect.top() + 53.0),
             Align2::LEFT_TOP,
-            format!("{:.0}", s.acs()),
+            perf.map(|v| v.to_string()).unwrap_or_else(|| "—".into()),
             f(12.5),
-            p.text,
+            perf_color(perf, &p),
         );
     }
     painter.text(
@@ -858,4 +757,13 @@ fn recent_match_row(ui: &mut Ui, cat: &Catalog, puuid: &str, m: &MatchDetail, no
         p.faint,
     );
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// Green above 600, red below 400.
+pub fn perf_color(perf: Option<u32>, p: &Palette) -> Color32 {
+    match perf {
+        Some(v) if v >= 600 => p.win,
+        Some(v) if v <= 400 => p.loss,
+        _ => p.text,
+    }
 }

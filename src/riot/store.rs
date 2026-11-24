@@ -312,7 +312,10 @@ pub struct Expression {
 pub async fn loadout(s: &RiotSession, puuid: &str) -> Result<FullLoadout, ApiError> {
     check(puuid)?;
     let pd = s.pd()?;
-    match s.get(&format!("{pd}/personalization/v3/players/{puuid}/playerloadout")).await {
+    match s
+        .get(&format!("{pd}/personalization/v3/players/{puuid}/playerloadout"))
+        .await
+    {
         Err(ApiError::NotFound) | Err(ApiError::Status(405)) => {
             s.get(&format!("{pd}/personalization/v2/players/{puuid}/playerloadout"))
                 .await

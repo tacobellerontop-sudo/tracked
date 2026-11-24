@@ -93,7 +93,11 @@ pub fn agents(ui: &mut Ui, state: &mut AppState) {
             matches_query(&state.search, &[&name])
         })
         .collect();
-    theme::page_title(ui, "Agents", &format!("last {} matches", refs.len()));
+    ui.label(
+        RichText::new(format!("Last {} matches", refs.len()))
+            .size(12.5)
+            .color(theme::pal(ui.ctx()).weak),
+    );
     if list.is_empty() {
         theme::card(ui, None, |ui| {
             ui.weak("No agents to show yet.");
@@ -155,7 +159,10 @@ pub fn agents(ui: &mut Ui, state: &mut AppState) {
                             .show(ui, |ui| {
                                 let cells = [
                                     ("K/D", format!("{:.2}", t.kd())),
-                                    ("ACS", format!("{:.0}", t.acs())),
+                                    (
+                                        "Performance",
+                                        t.perf().map(|v| format!("{v:.0}")).unwrap_or_else(|| "–".into()),
+                                    ),
                                     ("ADR", format!("{:.0}", t.adr())),
                                     ("Headshot %", format!("{:.1}%", t.hs_pct())),
                                 ];

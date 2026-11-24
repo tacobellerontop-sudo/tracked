@@ -18,7 +18,6 @@ pub fn ui(ui: &mut Ui, state: &mut AppState, intents: &IntentTx) {
 
     // Header: title, wallet, refresh.
     ui.horizontal(|ui| {
-        ui.label(RichText::new("Store").font(theme::semibold(15.0)).color(p.text));
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if state.shop.store_loading {
                 ui.spinner();

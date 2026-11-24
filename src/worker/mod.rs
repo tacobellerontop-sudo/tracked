@@ -169,6 +169,9 @@ impl Supervisor {
             Intent::RefreshCareer => {
                 tokio::spawn(tasks::refresh_career(ctx));
             }
+            Intent::LoadOlderMatches { start } => {
+                tokio::spawn(tasks::older_matches(ctx, start));
+            }
             Intent::CheckReplayFiles => {
                 tokio::spawn(async move {
                     let report = tokio::task::spawn_blocking(|| crate::replay::vrf::check_all(None))
